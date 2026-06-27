@@ -1,7 +1,13 @@
 from __future__ import annotations
 
+import logging
+
 from scrapers.sanitizers.pii_detector import detect_pii
-from scrapers.sanitizers.pii_tokenizer import pii_token
+from scrapers.sanitizers.pii_tokenizer import HMAC_PREFIX, hmac_token
+
+
+logger = logging.getLogger(__name__)
+_missing_secret_warned = False
 
 
 def _merge_findings(findings: list[dict]) -> list[dict]:
@@ -23,6 +29,27 @@ def _merge_findings(findings: list[dict]) -> list[dict]:
     return merged
 
 
+def _truncate_hmac_token(token: str) -> str:
+    return token.removeprefix(HMAC_PREFIX)
+
+
+def _redacted_placeholder(finding: dict) -> str:
+    kind = str(finding.get("kind", "pii")).upper()
+    value = str(finding.get("value", ""))
+
+    if finding.get("kind") in {"identity_document", "phone"}:
+        try:
+            return f"[REDACTED_{kind}_{_truncate_hmac_token(hmac_token(value))}]"
+        except RuntimeError as exc:
+            global _missing_secret_warned
+            if not _missing_secret_warned:
+                logger.warning("PII_HMAC_SECRET no está configurado; usando redacción estática para PII sensible.")
+                _missing_secret_warned = True
+            logger.debug("Fallback estático para %s: %s", finding.get("kind"), exc)
+
+    return f"[REDACTED_{kind}]"
+
+
 def redact_pii(text: str | None) -> str:
     """Sanitiza PII en el texto redactando datos genéricos y tokenizando cédulas y teléfonos usando PBKDF2."""
     if not text:
@@ -36,18 +63,6 @@ def redact_pii(text: str | None) -> str:
     for finding in sorted(findings, key=lambda item: item["start"], reverse=True):
         start = finding["start"]
         end = finding["end"]
-        kind = finding["kind"]
-        raw_value = finding["value"]
-
-        if kind in ("identity_document", "phone"):
-            token_hash = pii_token(raw_value, kind)
-            if token_hash:
-                replacement = f"[TOKEN_{kind.upper()}:pbkdf2:{token_hash}]"
-            else:
-                replacement = f"[REDACTED_{kind.upper()}]"
-        else:
-            replacement = f"[REDACTED_{kind.upper()}]"
-
-        redacted = redacted[:start] + replacement + redacted[end:]
+        redacted = redacted[:start] + _redacted_placeholder(finding) + redacted[end:]
 
     return redacted
