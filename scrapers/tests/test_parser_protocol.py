@@ -13,7 +13,7 @@ class DummyParser:
         return [
             Person(full_name="Ana Perez", fuente="synthetic_source"),
             AcopioCenter(name="Centro Demo", location_text="Caracas", fuente="synthetic_source"),
-            Event(event_type="demo", description=str(raw), fuente="synthetic_source"),
+            Event(event_type="other", description=str(raw), fuente="synthetic_source"),
         ]
 
 
