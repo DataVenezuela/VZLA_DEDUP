@@ -7,7 +7,7 @@ class DummyAdapter:
         return {"source_id": source_config.id}
 
 
-def test_adapter_protocol_accepts_matching_fetch_signature():
+def test_adapter_protocol_accepts_matching_fetch_signature() -> None:
     source = SourceConfig(
         id="synthetic_source",
         name="Synthetic Source",
