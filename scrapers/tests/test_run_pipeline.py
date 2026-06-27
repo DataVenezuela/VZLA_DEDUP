@@ -7,9 +7,9 @@ Estrategia
 ----------
 Todos los tests son 100% offline: ninguno hace llamadas de red.
 Las fuentes de red (api_json, html_static) se mockean inyectando adapters
-falsos en el registry del pipeline vía monkeypatch.  La fuente demo
-(manual_file) lee el archivo local ``scrapers/sample_data/synthetic_dump.txt``
-que también se crea en un tmp_path cuando hace falta.
+falsos en el registry del pipeline vía monkeypatch.  La fuente demo (manual_file)
+se construye íntegramente en ``tmp_path`` mediante el fixture ``demo_config``
+— sin leer ningún archivo del repo.
 
 Cobertura
 ----------
@@ -47,8 +47,6 @@ from scrapers.pipelines.run_pipeline import run_pipeline
 # Constantes y helpers
 # ---------------------------------------------------------------------------
 
-_DEMO_CONFIG = Path(__file__).resolve().parents[1] / "config" / "sources.demo.yaml"
-
 # Campos que todo registro exportado debe tener (Person mínimo)
 _REQUIRED_PERSON_KEYS = {
     "full_name", "fuente", "status", "trust_tier",
@@ -80,6 +78,44 @@ def _make_synthetic_dump(tmp_path: Path) -> Path:
         encoding="utf-8",
     )
     return dump
+
+
+@pytest.fixture()
+def demo_config(tmp_path: Path) -> Path:
+    """
+    Config YAML + dump de texto creados en tmp_path para cada test.
+
+    No depende de ningún archivo del repo (``synthetic_dump.txt`` no existe
+    en master), así que el stack completo pasa en CI y en checkout limpio.
+    """
+    dump = tmp_path / "synthetic_dump.txt"
+    dump.write_text(
+        "Datos sintéticos de prueba.\n"
+        "Se necesita ayuda en Barquisimeto tras el terremoto.\n"
+        "Familia Demo busca a Juan Demo, 35 años, Lara.\n",
+        encoding="utf-8",
+    )
+    cfg = tmp_path / "sources.demo.yaml"
+    cfg.write_text(
+        f"""project:
+  event_id: venezuela_earthquake_demo
+  default_country: Venezuela
+  output_mode: sanitized_jsonl
+sources:
+  - id: demo_manual_synthetic
+    name: Demo manual sintético
+    type: manual_file
+    enabled: true
+    trust_tier: C
+    url: "{dump}"
+    refresh_minutes: 60
+    required_keywords: []
+    parser_asignado: text
+    notes: "Datos 100% sintéticos para pruebas offline."
+""",
+        encoding="utf-8",
+    )
+    return cfg
 
 
 def _encuentralos_raw(records: list[dict]) -> RawContent:
@@ -137,16 +173,16 @@ _SAMPLE_ENCUENTRALOS_RECORDS = [
 class TestDemoSourceOffline:
     """Pipeline completo con la fuente demo que existe en el repo."""
 
-    def test_returns_summary_dict(self, tmp_path: Path) -> None:
+    def test_returns_summary_dict(self, tmp_path: Path, demo_config: Path) -> None:
         summary = run_pipeline(
-            config_path=_DEMO_CONFIG,
+            config_path=demo_config,
             output_dir=tmp_path / "out",
         )
         assert isinstance(summary, dict)
 
-    def test_summary_has_required_keys(self, tmp_path: Path) -> None:
+    def test_summary_has_required_keys(self, tmp_path: Path, demo_config: Path) -> None:
         summary = run_pipeline(
-            config_path=_DEMO_CONFIG,
+            config_path=demo_config,
             output_dir=tmp_path / "out",
         )
         required = {
@@ -158,72 +194,72 @@ class TestDemoSourceOffline:
         }
         assert required.issubset(summary.keys())
 
-    def test_sources_processed_is_one(self, tmp_path: Path) -> None:
+    def test_sources_processed_is_one(self, tmp_path: Path, demo_config: Path) -> None:
         summary = run_pipeline(
-            config_path=_DEMO_CONFIG,
+            config_path=demo_config,
             output_dir=tmp_path / "out",
         )
         assert summary["sources_processed"] == 1
 
-    def test_documents_exported_positive(self, tmp_path: Path) -> None:
+    def test_documents_exported_positive(self, tmp_path: Path, demo_config: Path) -> None:
         summary = run_pipeline(
-            config_path=_DEMO_CONFIG,
+            config_path=demo_config,
             output_dir=tmp_path / "out",
         )
         assert summary["documents_exported"] >= 1
 
-    def test_claims_exported_equals_documents(self, tmp_path: Path) -> None:
+    def test_claims_exported_equals_documents(self, tmp_path: Path, demo_config: Path) -> None:
         """claims_exported es alias legacy de documents_exported."""
         summary = run_pipeline(
-            config_path=_DEMO_CONFIG,
+            config_path=demo_config,
             output_dir=tmp_path / "out",
         )
         assert summary["claims_exported"] == summary["documents_exported"]
 
-    def test_errors_is_list(self, tmp_path: Path) -> None:
+    def test_errors_is_list(self, tmp_path: Path, demo_config: Path) -> None:
         summary = run_pipeline(
-            config_path=_DEMO_CONFIG,
+            config_path=demo_config,
             output_dir=tmp_path / "out",
         )
         assert isinstance(summary["errors"], list)
 
-    def test_persons_jsonl_created(self, tmp_path: Path) -> None:
+    def test_persons_jsonl_created(self, tmp_path: Path, demo_config: Path) -> None:
         out = tmp_path / "out"
-        run_pipeline(config_path=_DEMO_CONFIG, output_dir=out)
+        run_pipeline(config_path=demo_config, output_dir=out)
         assert (out / "persons.jsonl").exists()
 
-    def test_jsonl_is_valid_json_per_line(self, tmp_path: Path) -> None:
+    def test_jsonl_is_valid_json_per_line(self, tmp_path: Path, demo_config: Path) -> None:
         out = tmp_path / "out"
-        run_pipeline(config_path=_DEMO_CONFIG, output_dir=out)
+        run_pipeline(config_path=demo_config, output_dir=out)
         records = _read_jsonl(out / "persons.jsonl")
         assert len(records) >= 1
         for rec in records:
             assert isinstance(rec, dict)
 
-    def test_entity_type_not_in_export(self, tmp_path: Path) -> None:
+    def test_entity_type_not_in_export(self, tmp_path: Path, demo_config: Path) -> None:
         """_entity_type es campo interno — nunca debe aparecer en JSONL."""
         out = tmp_path / "out"
-        run_pipeline(config_path=_DEMO_CONFIG, output_dir=out)
+        run_pipeline(config_path=demo_config, output_dir=out)
         for rec in _read_jsonl(out / "persons.jsonl"):
             assert "_entity_type" not in rec
 
-    def test_required_person_fields_present(self, tmp_path: Path) -> None:
+    def test_required_person_fields_present(self, tmp_path: Path, demo_config: Path) -> None:
         out = tmp_path / "out"
-        run_pipeline(config_path=_DEMO_CONFIG, output_dir=out)
+        run_pipeline(config_path=demo_config, output_dir=out)
         for rec in _read_jsonl(out / "persons.jsonl"):
             missing = _REQUIRED_PERSON_KEYS - rec.keys()
             assert not missing, f"Campos faltantes: {missing}"
 
-    def test_confidence_score_in_range(self, tmp_path: Path) -> None:
+    def test_confidence_score_in_range(self, tmp_path: Path, demo_config: Path) -> None:
         out = tmp_path / "out"
-        run_pipeline(config_path=_DEMO_CONFIG, output_dir=out)
+        run_pipeline(config_path=demo_config, output_dir=out)
         for rec in _read_jsonl(out / "persons.jsonl"):
             score = rec.get("confidence_score", -1)
             assert 0.0 <= score <= 1.0, f"score fuera de rango: {score}"
 
-    def test_output_dir_created(self, tmp_path: Path) -> None:
+    def test_output_dir_created(self, tmp_path: Path, demo_config: Path) -> None:
         out = tmp_path / "nested" / "output"
-        run_pipeline(config_path=_DEMO_CONFIG, output_dir=out)
+        run_pipeline(config_path=demo_config, output_dir=out)
         assert out.exists()
 
 
@@ -232,7 +268,7 @@ class TestDemoSourceOffline:
 # ---------------------------------------------------------------------------
 
 class TestDisabledSource:
-    def test_disabled_source_not_processed(self, tmp_path: Path) -> None:
+    def test_disabled_source_not_processed(self, tmp_path: Path, demo_config: Path) -> None:
         dump = _make_synthetic_dump(tmp_path)
         cfg = _make_demo_config(tmp_path, f"""
 project:
@@ -253,7 +289,7 @@ sources:
         assert summary["sources_processed"] == 0
         assert summary["documents_exported"] == 0
 
-    def test_mixed_enabled_disabled(self, tmp_path: Path) -> None:
+    def test_mixed_enabled_disabled(self, tmp_path: Path, demo_config: Path) -> None:
         dump = _make_synthetic_dump(tmp_path)
         cfg = _make_demo_config(tmp_path, f"""
 project:
@@ -287,7 +323,7 @@ sources:
 # ---------------------------------------------------------------------------
 
 class TestResilience:
-    def test_bad_url_does_not_crash_pipeline(self, tmp_path: Path) -> None:
+    def test_bad_url_does_not_crash_pipeline(self, tmp_path: Path, demo_config: Path) -> None:
         """Fuente con URL local inexistente → error anotado, pipeline continúa."""
         dump = _make_synthetic_dump(tmp_path)
         cfg = _make_demo_config(tmp_path, f"""
@@ -318,7 +354,7 @@ sources:
         assert summary["sources_processed"] >= 1
         # El pipeline no debe haber lanzado excepción (llegamos hasta aquí)
 
-    def test_errors_list_non_empty_on_failure(self, tmp_path: Path) -> None:
+    def test_errors_list_non_empty_on_failure(self, tmp_path: Path, demo_config: Path) -> None:
         cfg = _make_demo_config(tmp_path, """
 project:
   event_id: test
@@ -337,14 +373,14 @@ sources:
         summary = run_pipeline(config_path=cfg, output_dir=tmp_path / "out")
         assert len(summary["errors"]) >= 1
 
-    def test_invalid_config_returns_error_summary(self, tmp_path: Path) -> None:
+    def test_invalid_config_returns_error_summary(self, tmp_path: Path, demo_config: Path) -> None:
         cfg = tmp_path / "bad.yaml"
         cfg.write_text("esto no es un yaml valido: [\n", encoding="utf-8")
         summary = run_pipeline(config_path=cfg, output_dir=tmp_path / "out")
         assert summary["sources_processed"] == 0
         assert len(summary["errors"]) >= 1
 
-    def test_unimplemented_adapter_type_skipped(self, tmp_path: Path) -> None:
+    def test_unimplemented_adapter_type_skipped(self, tmp_path: Path, demo_config: Path) -> None:
         """Fuente webapp (sin adapter) debe omitirse sin error fatal."""
         cfg = _make_demo_config(tmp_path, """
 project:
@@ -371,21 +407,21 @@ sources:
 # ---------------------------------------------------------------------------
 
 class TestLimit:
-    def test_limit_zero_exports_nothing(self, tmp_path: Path) -> None:
+    def test_limit_zero_exports_nothing(self, tmp_path: Path, demo_config: Path) -> None:
         out = tmp_path / "out"
-        summary = run_pipeline(config_path=_DEMO_CONFIG, output_dir=out, limit=0)
+        summary = run_pipeline(config_path=demo_config, output_dir=out, limit=0)
         assert summary["documents_exported"] == 0
 
-    def test_limit_one_exports_at_most_one(self, tmp_path: Path) -> None:
+    def test_limit_one_exports_at_most_one(self, tmp_path: Path, demo_config: Path) -> None:
         out = tmp_path / "out"
-        run_pipeline(config_path=_DEMO_CONFIG, output_dir=out, limit=1)
+        run_pipeline(config_path=demo_config, output_dir=out, limit=1)
         records = _read_jsonl(out / "persons.jsonl")
         assert len(records) <= 1
 
-    def test_no_limit_exports_all(self, tmp_path: Path) -> None:
+    def test_no_limit_exports_all(self, tmp_path: Path, demo_config: Path) -> None:
         out = tmp_path / "out"
-        summary_no_limit = run_pipeline(config_path=_DEMO_CONFIG, output_dir=out, limit=None)
-        summary_high_limit = run_pipeline(config_path=_DEMO_CONFIG, output_dir=out, limit=9999)
+        summary_no_limit = run_pipeline(config_path=demo_config, output_dir=out, limit=None)
+        summary_high_limit = run_pipeline(config_path=demo_config, output_dir=out, limit=9999)
         assert summary_no_limit["documents_exported"] == summary_high_limit["documents_exported"]
 
 
@@ -409,7 +445,7 @@ class TestApiJsonSourceMocked:
         adapter.close = MagicMock()
         return adapter
 
-    def test_api_json_source_produces_persons(self, tmp_path: Path) -> None:
+    def test_api_json_source_produces_persons(self, tmp_path: Path, demo_config: Path) -> None:
         dump = _make_synthetic_dump(tmp_path)  # no se usa, pero el yaml lo necesita como dummy
         cfg = _make_demo_config(tmp_path, """
 project:
@@ -437,7 +473,7 @@ sources:
         assert summary["sources_processed"] == 1
         assert summary["documents_exported"] == len(_SAMPLE_ENCUENTRALOS_RECORDS)
 
-    def test_api_json_persons_have_correct_status(self, tmp_path: Path) -> None:
+    def test_api_json_persons_have_correct_status(self, tmp_path: Path, demo_config: Path) -> None:
         cfg = _make_demo_config(tmp_path, """
 project:
   event_id: test
@@ -466,7 +502,7 @@ sources:
         statuses = {r["status"] for r in records}
         assert statuses == {"missing", "found"}
 
-    def test_api_json_no_entity_type_in_export(self, tmp_path: Path) -> None:
+    def test_api_json_no_entity_type_in_export(self, tmp_path: Path, demo_config: Path) -> None:
         cfg = _make_demo_config(tmp_path, """
 project:
   event_id: test
@@ -500,21 +536,21 @@ sources:
 # ---------------------------------------------------------------------------
 
 class TestPIISalt:
-    def test_pipeline_works_without_pii_salt(self, tmp_path: Path) -> None:
+    def test_pipeline_works_without_pii_salt(self, tmp_path: Path, demo_config: Path) -> None:
         """Sin PII_SALT el pipeline no debe fallar."""
         env = {k: v for k, v in os.environ.items() if k != "PII_SALT"}
         with patch.dict(os.environ, env, clear=True):
             summary = run_pipeline(
-                config_path=_DEMO_CONFIG,
+                config_path=demo_config,
                 output_dir=tmp_path / "out",
             )
         assert summary["sources_processed"] == 1
 
-    def test_pipeline_works_with_pii_salt(self, tmp_path: Path) -> None:
+    def test_pipeline_works_with_pii_salt(self, tmp_path: Path, demo_config: Path) -> None:
         """Con PII_SALT configurado, el pipeline debe funcionar igual."""
         with patch.dict(os.environ, {"PII_SALT": "test-salt-pipeline"}):
             summary = run_pipeline(
-                config_path=_DEMO_CONFIG,
+                config_path=demo_config,
                 output_dir=tmp_path / "out",
             )
         assert summary["sources_processed"] == 1
