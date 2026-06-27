@@ -4,3 +4,4 @@ Luego del terremoto en Venezuela, vecinos de Zona A indican que se necesita agua
 También se reporta una vía bloqueada cerca del sector central.
 Una persona publicó un teléfono de contacto ficticio +58 412 123 4567 y una cédula ficticia V-12345678.
 Estos datos deben quedar redactados antes de exportar claims.
+En Petare, Caracas, se reporta un edificio colapsado y vecinos sin agua tras el terremoto.

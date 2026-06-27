@@ -13,6 +13,7 @@ from scrapers.extractors.rss_extractor import extract_rss_items
 from scrapers.extractors.text_extractor import extract_plain_text
 from scrapers.fetchers.http_client import fetch_url
 from scrapers.fetchers.local_file import read_local_file
+from scrapers.normalizers.geo import canonical_zone
 from scrapers.models.document import Document
 from scrapers.outputs.jsonl_writer import write_json, write_jsonl
 from scrapers.sanitizers.pii_redactor import redact_pii
@@ -222,6 +223,9 @@ def run_pipeline(
                         description=candidate["description"],
                     )
                     claim_id = f"claim_{fingerprint[:16]}"
+                    # Resuelve zona canónica priorizando location_text, luego la descripción.
+                    zone = canonical_zone(candidate.get("location_text"), candidate["description"])
+                    geo = zone.as_dict() if zone else {}
                     claim = {
                         "claim_id": claim_id,
                         "fingerprint": fingerprint,
@@ -232,6 +236,12 @@ def run_pipeline(
                         "claim_type": candidate["claim_type"],
                         "description": candidate["description"],
                         "location_text": candidate.get("location_text"),
+                        "geo_code": geo.get("geo_code"),
+                        "geo_zone": geo.get("geo_zone"),
+                        "geo_estado": geo.get("geo_estado"),
+                        "geo_municipio": geo.get("geo_municipio"),
+                        "lat": geo.get("lat"),
+                        "lon": geo.get("lon"),
                         "confidence_score": confidence_from_tier(doc.trust_tier),
                         "verification_status": "new",
                         "evidence_text": candidate["evidence_text"],

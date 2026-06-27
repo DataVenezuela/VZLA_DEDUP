@@ -1,0 +1,98 @@
+{
+  "_meta": {
+    "descripcion": "Gazetteer mínimo de Venezuela para normalizar ubicaciones a una zona canónica. Generaliza a parroquia/zona (cumple la política de no guardar dirección exacta). Ampliable.",
+    "nivel": "parroquia/zona"
+  },
+  "zonas": [
+    {
+      "codigo": "VE-DC-LIBERTADOR-CARACAS",
+      "estado": "Distrito Capital",
+      "municipio": "Libertador",
+      "zona": "Caracas",
+      "lat": 10.4806,
+      "lon": -66.9036,
+      "alias": ["caracas", "ccs", "distrito capital", "libertador"]
+    },
+    {
+      "codigo": "VE-MIR-SUCRE-PETARE",
+      "estado": "Miranda",
+      "municipio": "Sucre",
+      "zona": "Petare",
+      "lat": 10.4767,
+      "lon": -66.8086,
+      "alias": ["petare", "sucre miranda", "municipio sucre"]
+    },
+    {
+      "codigo": "VE-MIR-CHACAO-CHACAO",
+      "estado": "Miranda",
+      "municipio": "Chacao",
+      "zona": "Chacao",
+      "lat": 10.4969,
+      "lon": -66.8536,
+      "alias": ["chacao"]
+    },
+    {
+      "codigo": "VE-MIR-BARUTA-BARUTA",
+      "estado": "Miranda",
+      "municipio": "Baruta",
+      "zona": "Baruta",
+      "lat": 10.4339,
+      "lon": -66.8758,
+      "alias": ["baruta", "las minas de baruta"]
+    },
+    {
+      "codigo": "VE-ZUL-MARACAIBO-MARACAIBO",
+      "estado": "Zulia",
+      "municipio": "Maracaibo",
+      "zona": "Maracaibo",
+      "lat": 10.6545,
+      "lon": -71.6402,
+      "alias": ["maracaibo", "zulia", "mcbo"]
+    },
+    {
+      "codigo": "VE-CAR-VALENCIA-VALENCIA",
+      "estado": "Carabobo",
+      "municipio": "Valencia",
+      "zona": "Valencia",
+      "lat": 10.1620,
+      "lon": -68.0077,
+      "alias": ["valencia", "carabobo"]
+    },
+    {
+      "codigo": "VE-LAR-IRIBARREN-BARQUISIMETO",
+      "estado": "Lara",
+      "municipio": "Iribarren",
+      "zona": "Barquisimeto",
+      "lat": 10.0647,
+      "lon": -69.3470,
+      "alias": ["barquisimeto", "lara", "iribarren"]
+    },
+    {
+      "codigo": "VE-ARA-GIRARDOT-MARACAY",
+      "estado": "Aragua",
+      "municipio": "Girardot",
+      "zona": "Maracay",
+      "lat": 10.2469,
+      "lon": -67.5958,
+      "alias": ["maracay", "aragua", "girardot"]
+    },
+    {
+      "codigo": "VE-MER-LIBERTADOR-MERIDA",
+      "estado": "Mérida",
+      "municipio": "Libertador",
+      "zona": "Mérida",
+      "lat": 8.5897,
+      "lon": -71.1561,
+      "alias": ["merida", "ciudad de merida"]
+    },
+    {
+      "codigo": "VE-TAC-SANCRISTOBAL-SANCRISTOBAL",
+      "estado": "Táchira",
+      "municipio": "San Cristóbal",
+      "zona": "San Cristóbal",
+      "lat": 7.7669,
+      "lon": -72.2250,
+      "alias": ["san cristobal", "tachira"]
+    }
+  ]
+}
