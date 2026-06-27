@@ -21,7 +21,7 @@ def load_sources(config_path: Path) -> tuple[dict, list[SourceConfig]]:
                 trust_tier=source["trust_tier"],
                 url=source["url"],
                 refresh_minutes=int(source["refresh_minutes"]),
-                parser=source.get("parser", "auto"),
+                parser_asignado=source["parser_asignado"],
                 required_keywords=source.get("required_keywords", []) or [],
                 notes=source.get("notes"),
             )

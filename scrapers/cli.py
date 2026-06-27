@@ -1,9 +1,9 @@
 from __future__ import annotations
 
 import argparse
+import sys
 from pathlib import Path
 
-from scrapers.pipelines.run_pipeline import run_pipeline
 from scrapers.validators.source_validator import validate_sources_config
 
 
@@ -16,7 +16,9 @@ def main() -> None:
 
     run_cmd = sub.add_parser("run", help="Run scraper pipeline")
     run_cmd.add_argument("--config", required=True, help="YAML config path")
-    run_cmd.add_argument("--output-dir", default="scrapers/runtime_output", help="Output directory")
+    run_cmd.add_argument(
+        "--output-dir", default="scrapers/runtime_output", help="Output directory"
+    )
     run_cmd.add_argument("--limit", type=int, default=None, help="Max documents per source")
     run_cmd.add_argument(
         "--keep-raw",
@@ -31,11 +33,17 @@ def main() -> None:
 
     if args.command == "validate":
         config_path = Path(args.config)
-        validate_sources_config(config_path)
-        print(f"OK: config válida: {config_path}")
+        try:
+            validate_sources_config(config_path)
+        except ValueError as exc:
+            print(f"ERROR: {exc}", file=sys.stderr)
+            raise SystemExit(1) from exc
+        print(f"OK: config valida: {config_path}")
         return
 
     if args.command == "run":
+        from scrapers.pipelines.run_pipeline import run_pipeline
+
         summary = run_pipeline(
             config_path=Path(args.config),
             output_dir=Path(args.output_dir),

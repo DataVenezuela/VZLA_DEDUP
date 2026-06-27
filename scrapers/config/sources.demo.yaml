@@ -15,5 +15,5 @@ sources:
       - ayuda
       - agua
       - terremoto
-    parser: text
+    parser_asignado: text
     notes: "Datos 100% sintéticos para pruebas offline."

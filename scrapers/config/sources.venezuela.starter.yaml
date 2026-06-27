@@ -13,7 +13,7 @@ sources:
     trust_tier: A
     url: "https://earthquake.usgs.gov/fdsnws/event/1/query?format=geojson&starttime=2026-06-24&endtime=2026-06-30&minmagnitude=4&latitude=10.5&longitude=-66.9&maxradiuskm=800"
     refresh_minutes: 30
-    parser: geojson_earthquake
+    parser_asignado: geojson_earthquake
     required_keywords:
       - Venezuela
       - earthquake
@@ -25,7 +25,7 @@ sources:
     trust_tier: A
     url: "https://api.reliefweb.int/v2/reports?appname=REQUEST_APPROVED_APPNAME&query[value]=Venezuela%20earthquake&limit=10&preset=latest"
     refresh_minutes: 30
-    parser: reliefweb_reports
+    parser_asignado: reliefweb_reports
     required_keywords:
       - Venezuela
       - earthquake
@@ -38,7 +38,7 @@ sources:
     trust_tier: A
     url: "https://www.gdacs.org/xml/rss.xml"
     refresh_minutes: 30
-    parser: rss
+    parser_asignado: rss
     required_keywords:
       - Venezuela
       - earthquake
@@ -50,7 +50,7 @@ sources:
     trust_tier: A
     url: "https://mapping.emergency.copernicus.eu/activations/EMSR884/"
     refresh_minutes: 60
-    parser: html
+    parser_asignado: html
     required_keywords:
       - Venezuela
       - earthquake
