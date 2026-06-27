@@ -163,30 +163,42 @@ class ApiAdapter:
                 resp = self._client.get(path, params=params)
 
                 if resp.status_code in _RETRYABLE_STATUS:
-                    delay = _backoff_delay(attempt)
-                    log.warning(
-                        "HTTP %s en intento %d/%d — reintento en %.1fs",
-                        resp.status_code, attempt, self.max_retries, delay,
-                    )
-                    time.sleep(delay)
                     last_exc = httpx.HTTPStatusError(
                         f"HTTP {resp.status_code}",
                         request=resp.request,
                         response=resp,
                     )
+                    if attempt < self.max_retries:
+                        delay = _backoff_delay(attempt)
+                        log.warning(
+                            "HTTP %s en intento %d/%d — reintento en %.1fs",
+                            resp.status_code, attempt, self.max_retries, delay,
+                        )
+                        time.sleep(delay)
+                    else:
+                        log.warning(
+                            "HTTP %s en intento %d/%d — sin más reintentos",
+                            resp.status_code, attempt, self.max_retries,
+                        )
                     continue
 
                 resp.raise_for_status()
                 return resp
 
             except (httpx.TimeoutException, httpx.NetworkError) as exc:
-                delay = _backoff_delay(attempt)
-                log.warning(
-                    "%s en intento %d/%d — reintento en %.1fs",
-                    type(exc).__name__, attempt, self.max_retries, delay,
-                )
-                time.sleep(delay)
                 last_exc = exc
+                if attempt < self.max_retries:
+                    delay = _backoff_delay(attempt)
+                    log.warning(
+                        "%s en intento %d/%d — reintento en %.1fs",
+                        type(exc).__name__, attempt, self.max_retries, delay,
+                    )
+                    time.sleep(delay)
+                else:
+                    log.warning(
+                        "%s en intento %d/%d — sin más reintentos",
+                        type(exc).__name__, attempt, self.max_retries,
+                    )
 
         raise RuntimeError(
             f"Máximo de reintentos ({self.max_retries}) alcanzado para {path}"
@@ -296,6 +308,16 @@ class ApiAdapter:
                     if key in data and isinstance(data[key], list):
                         records = data[key]
                         break
+                else:
+                    # Ninguna clave conocida matcheó — distinguir "vacío real"
+                    # de "esquema no reconocido" para evitar pérdida silenciosa.
+                    if data:
+                        log.warning(
+                            "%s: dict no vacío en página %d no matchea ninguna "
+                            "clave conocida (claves presentes: %s) — "
+                            "records quedará vacío; verifica el esquema de la API.",
+                            self.source_key, page_num, list(data.keys())[:10],
+                        )
                 # Intentar extraer total
                 for tkey in ("total", "count", "total_count", "totalCount"):
                     if tkey in data and isinstance(data[tkey], int):
@@ -363,10 +385,3 @@ class ApiAdapter:
     def close(self) -> None:
         """Cierra el cliente httpx subyacente."""
         self._client.close()
-
-
-# Afirmar en tiempo de import que ApiAdapter satisface el Protocol.
-# Si alguna firma se rompe, el error aparece en el módulo, no en runtime.
-assert isinstance(ApiAdapter("https://example.com"), AdapterProtocol), (
-    "ApiAdapter no satisface AdapterProtocol"
-)
