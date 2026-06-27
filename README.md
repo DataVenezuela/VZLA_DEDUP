@@ -15,9 +15,9 @@ Miles de personas suben datos relevantes a distintas páginas, pero están todos
 
 El reto es de criterio:
 
-- Cómo sabemos que dos registros son la misma persona?
-- Cómo descartamos datos sin cometer un error que cueste una vida?
-- Cómo verificamos que lo que dice una página corresponde con la realidad?
+- ¿Cómo sabemos que dos registros son la misma persona?
+- ¿Cómo descartamos datos sin cometer un error que cueste una vida?
+- ¿Cómo verificamos que lo que dice una página corresponde con la realidad?
 
 Este proyecto ataca esas preguntas en 6 etapas:
 
@@ -93,10 +93,94 @@ La limpieza opera sobre entidades tipadas, no sobre texto crudo. Los módulos co
 La salida son tres streams JSONL independientes, listos para ingestión por DB/API:
 
 ```
-persons.jsonl   →  registros de personas
-acopio.jsonl    →  centros de acopio activos
-events.jsonl    →  eventos (sismos, zonas afectadas)
+persons.jsonl       →  registros de personas
+acopio.jsonl        →  centros de acopio activos
+events.jsonl        →  eventos (sismos, zonas afectadas)
 ```
+
+---
+
+## Schema de datos
+
+Todas las fechas en **UTC estricto** (ISO 8601 con `Z`). Nulos siempre como `null` explícito, nunca `""` ni `"N/A"`. IDs como UUID v4. Los valores de campos categóricos son strings controlados — los enums completos están en [`docs/schema.md`](./docs/schema.md).
+
+### `events.jsonl`
+
+```json
+{
+  "event_id": "f0e1d2c3-b4a5-6789-0fed-cba987654321",
+  "name": "Terremoto Yaracuy 24-06-2026",
+  "event_type": "earthquake",
+  "occurred_at": "2026-06-24T14:32:00Z",
+  "affected_states": ["Yaracuy", "Lara", "Portuguesa"],
+  "magnitude": 7.30,
+  "depth_km": 12.50,
+  "status": "active",
+  "external_ids": {
+    "usgs": "us7000n4xy",
+    "funvisis": "VEN-2026-001"
+  }
+}
+```
+
+### `persons.jsonl`
+
+```json
+{
+  "person_record_id": "a1b2c3d4-e5f6-7890-abcd-ef1234567890",
+  "event_id": "f0e1d2c3-b4a5-6789-0fed-cba987654321",
+  "full_name": "JOSE LUIS PEREZ MARIN",
+  "alternate_names": ["JOSE PEREZ", "JOSELO PEREZ MARIN"],
+  "cedula_hmac": "3b4c9e2a1fd82f6a0bc347e1a9f2c8d5e047b3a12f9c6d71e8b405a3c2d1f9e0",
+  "cedula_masked": "V-****5821",
+  "age_range": {"min": 30, "max": 40},
+  "sex": "M",
+  "is_minor": false,
+  "last_known_location": {
+    "raw": "El Tocuyo, Lara",
+    "estado": "Lara",
+    "municipio": "Morán",
+    "parroquia": null,
+    "lat": 9.7834,
+    "lng": -69.7921
+  },
+  "status": "missing",
+  "verification_status": "unverified",
+  "confidence_score": 0.420,
+  "source_url": "https://encuentralos.org/registro/12345"
+}
+```
+
+Las notas adicionales por persona (perdido, herido, encontrado, fallecido) van en `person_notes.jsonl` referenciando el mismo `person_record_id`. Ejemplos completos en [`docs/schema.md`](./docs/schema.md).
+
+### `acopio.jsonl`
+
+```json
+{
+  "acopio_id": "h8c9d0e1-f2a3-4567-bcde-678901234567",
+  "event_id": "f0e1d2c3-b4a5-6789-0fed-cba987654321",
+  "name": "Centro de Acopio Polideportivo Municipal San Felipe",
+  "location": {
+    "raw": "Polideportivo Municipal, San Felipe, Yaracuy",
+    "estado": "Yaracuy",
+    "municipio": "San Felipe",
+    "parroquia": null,
+    "lat": 10.3401,
+    "lng": -68.7456
+  },
+  "confidence_score": 0.850,
+  "status": "active",
+  "needs": ["agua", "alimentos", "medicamentos", "colchonetas", "pañales"],
+  "last_verified_at": "2026-06-26T08:00:00Z",
+  "managing_org": "Cruz Roja Venezuela — Seccional Yaracuy",
+  "contact_hmac": "9f1c3e7a2b4d6f8e0a2c4e6f8b0d2f4a6c8e0b2d4f6a8c0e2f4b6d8a0c2e4f6",
+  "contact_masked": "+58 412 ***7834",
+  "capacity": 400,
+  "current_load": 283
+}
+```
+
+El campo `needs` acepta únicamente keywords normalizadas: `agua` · `alimentos` · `medicamentos` · `colchonetas` · `ropa` · `calzado` · `higiene` · `pañales` · `leche_formula` · `generador` · `combustible` · `herramientas` · `voluntarios` · `transporte` · `otro`. El parser es responsable de mapear texto libre al keyword antes de exportar.
 
 ---
 
@@ -178,7 +262,7 @@ Lee [CONTRIBUTING.md](./CONTRIBUTING.md) antes de empezar. La versión corta:
 
 1. Crea una rama desde main: `git checkout -b scrapers/lo-que-vas-a-hacer`
 2. Haz tus cambios y corre `pytest scrapers/tests`
-3. Abre un Pull Request, necesita 1 aprobación antes de mergear a main
+3. Abre un Pull Request — **requiere aprobación explícita del dueño del repo antes de mergear a main**
 4. No commitees datos reales, dumps ni archivos con PII
 
 ---
@@ -187,7 +271,7 @@ Lee [CONTRIBUTING.md](./CONTRIBUTING.md) antes de empezar. La versión corta:
 
 Este proyecto maneja información de personas desaparecidas. Las reglas son estrictas:
 
-- Cédulas y teléfonos se redactan o se HMAC antes de exportar, nunca en claro
+- Cédulas, teléfonos y contactos se redactan o se HMAC antes de exportar, nunca en claro
 - Los outputs del pipeline van a `scrapers/runtime_output/` (en `.gitignore`), nunca al repo
 - Existe un mecanismo de eliminación de datos a pedido
 
