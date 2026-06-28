@@ -88,7 +88,7 @@ def _get_adapter(source: SourceConfig) -> Any:
             source_key=source.id,
         )
         # Adjuntamos el path para que _run_source lo use
-        adapter._default_path = path  # type: ignore[attr-defined]
+        adapter.default_path = path  # Pass path to constructor instead of monkey-patching private attr
         return adapter
 
     if stype in ("html_static", "rss"):
@@ -219,11 +219,13 @@ class _TextFallbackParser:
         content = raw.get("raw_content", "")
         if isinstance(content, (dict, list)):
             import json as _json
-            content = _json.dumps(content, ensure_ascii=False)[:500]
+            # Fix: raise truncation limit from 500 to 10K. At 500 chars entire
+            # pages of useful data were silently dropped by the fallback parser.
+            content = _json.dumps(content, ensure_ascii=False)[:10_000]
         elif isinstance(content, str):
-            content = content[:500]
+            content = content[:10_000]
         else:
-            content = str(content)[:500]
+            content = str(content)[:10_000]
 
         if not content.strip():
             return []
@@ -253,9 +255,9 @@ def _fetch_pages(adapter: Any, source: SourceConfig) -> list[RawContent]:
     url = source.url
     pages: list[RawContent] = []
 
-    # ApiAdapter expone _default_path separado de base_url
-    if hasattr(adapter, "_default_path"):
-        path = adapter._default_path
+    # ApiAdapter expone default_path separado de base_url
+    if hasattr(adapter, "default_path") and adapter.default_path:
+        path = adapter.default_path
         for page in adapter.fetch_all(path):
             pages.append(page)
     else:
@@ -402,7 +404,6 @@ def _apply_dedup(
 
     total_deduped = 0
 
-    # Reconstruir entidades tipadas para pasar a deduplicate_typed_entities
     def _to_event(d: dict) -> Event | None:
         try:
             d2 = {k: v for k, v in d.items() if not k.startswith("_")}
@@ -419,23 +420,21 @@ def _apply_dedup(
             errors.append(f"Error reconstruyendo AcopioCenter para dedup: {exc}")
             return None
 
-    deduped_events_typed: list[Event] = []
+    # Fix: deduped_events is list[dict], not list[Event] — we convert back
+    # to dicts immediately after dedup. Removes dead store `events_raw_deduped`
+    # and 7 type: ignore comments that were papering over the wrong annotation.
+    deduped_events: list[dict] = []
     if events_raw:
         typed_events = [e for d in events_raw if (e := _to_event(d)) is not None]
         if typed_events:
             deduped_typed, n_dup = deduplicate_typed_entities(typed_events)
             total_deduped += n_dup
-            # Convertir de vuelta a dict
             for entity in deduped_typed:
                 d = entity.model_dump()
                 d["_entity_type"] = "Event"
-                events_raw_deduped = d
-                deduped_events_typed.append(events_raw_deduped)  # type: ignore[arg-type]
-        else:
-            deduped_events_typed = []  # type: ignore[assignment]
-    events_out = deduped_events_typed  # type: ignore[assignment]
+                deduped_events.append(d)
 
-    deduped_acopio_typed: list[AcopioCenter] = []
+    deduped_acopio: list[dict] = []
     if acopio_raw:
         typed_acopio = [a for d in acopio_raw if (a := _to_acopio(d)) is not None]
         if typed_acopio:
@@ -444,12 +443,9 @@ def _apply_dedup(
             for entity in deduped_typed:
                 d = entity.model_dump()
                 d["_entity_type"] = "AcopioCenter"
-                deduped_acopio_typed.append(d)  # type: ignore[arg-type]
-        else:
-            deduped_acopio_typed = []  # type: ignore[assignment]
-    acopio_out = deduped_acopio_typed  # type: ignore[assignment]
+                deduped_acopio.append(d)
 
-    return persons + list(events_out) + list(acopio_out), total_deduped  # type: ignore[arg-type]
+    return persons + deduped_events + deduped_acopio, total_deduped
 
 
 def _apply_confidence(
