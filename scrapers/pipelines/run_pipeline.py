@@ -510,9 +510,9 @@ def _apply_minor_protection(
         try:
             result.append(protect_minor_fields(rec))
         except Exception as exc:
-            log.warning("Error en protección de menores: %s", exc)
-            errors.append(f"Error en protección de menores: {exc}")
-            result.append(rec)
+            log.error("Error en protección de menores, registro omitido: %s", exc)
+            errors.append(f"Error en protección de menores (registro omitido): {exc}")
+            # Fail-closed: no se agrega el registro sin redactar.
     return result
 
 

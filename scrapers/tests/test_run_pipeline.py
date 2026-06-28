@@ -681,6 +681,39 @@ sources:
         assert rec["cedula_masked"] == "V-****1234"
         assert rec["last_known_location"] == "Iribarren, Lara"
 
+    def test_minor_record_omitted_when_protection_raises(self, tmp_path: Path) -> None:
+        """Fail-closed: si protect_minor_fields lanza, el registro de un menor
+        no debe exportarse sin redactar (ver PR #102)."""
+        parser = MagicMock()
+        parser.parse.return_value = [
+            Person(
+                full_name="NIÑO DEMO PEREZ",
+                event_id=_EVENT_ID,
+                is_minor=True,
+                foto="https://example.org/foto.jpg",
+                cedula_masked="V-****1234",
+                last_known_location="Iribarren, Lara",
+                fuente="encuentralos_tecnosoft",
+            )
+        ]
+        out = tmp_path / "out"
+
+        with patch(
+            "scrapers.pipelines.run_pipeline._get_adapter",
+            return_value=self._mock_adapter(),
+        ), patch(
+            "scrapers.pipelines.run_pipeline._get_parser",
+            return_value=parser,
+        ), patch(
+            "scrapers.pipelines.run_pipeline.protect_minor_fields",
+            side_effect=ValueError("boom"),
+        ):
+            summary = run_pipeline(config_path=self._cfg(tmp_path), output_dir=out)
+
+        records = _read_jsonl(out / "persons.jsonl")
+        assert records == []
+        assert any("registro omitido" in e for e in summary["errors"])
+
 
 # ---------------------------------------------------------------------------
 # Tests: PII_SALT presente → tokenize_pii_fields se ejecuta
