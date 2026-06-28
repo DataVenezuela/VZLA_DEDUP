@@ -31,7 +31,7 @@ def main() -> None:
         try:
             validate_sources_config(config_path)
         except ValueError as exc:
-            print(f"ERROR: {exc}", file=sys.stderr)
+            print(f"ERROR: config invalida; error_type={type(exc).__name__}", file=sys.stderr)
             raise SystemExit(1) from exc
         print(f"OK: config valida: {config_path}")
         return

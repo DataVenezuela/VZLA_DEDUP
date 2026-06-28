@@ -286,15 +286,17 @@ class StagingExporter:
         # Lectura informativa del watermark actual (no filtra en Stage 1).
         try:
             self._get_watermark()
-        except httpx.HTTPError as exc:
-            log.warning("no se pudo leer watermark: %s", exc)
+        except httpx.HTTPError as err:
+            error_type = type(err).__name__
+            log.warning("no se pudo leer watermark; error_type=%s", error_type)
 
         for rec in records:
             payload = self._build_payload(rec)
             try:
                 resp = self._post_with_retry(_APORTES_PATH, payload)
-            except httpx.HTTPError as exc:
-                result.errors.append(f"POST {_APORTES_PATH} fallo: {exc}")
+            except httpx.HTTPError as err:
+                error_type = type(err).__name__
+                result.errors.append(f"POST {_APORTES_PATH} fallo; error_type={error_type}")
                 continue
             if resp.status_code in (200, 201):
                 result.sent += 1
@@ -314,8 +316,9 @@ class StagingExporter:
             try:
                 if not self._set_watermark(new_watermark):
                     result.errors.append("no se pudo actualizar el watermark")
-            except httpx.HTTPError as exc:
-                result.errors.append(f"PUT {_WATERMARKS_PATH} fallo: {exc}")
+            except httpx.HTTPError as err:
+                error_type = type(err).__name__
+                result.errors.append(f"PUT {_WATERMARKS_PATH} fallo; error_type={error_type}")
 
         return result
 

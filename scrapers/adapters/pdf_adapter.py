@@ -124,7 +124,8 @@ class PdfAdapter:
                 response = client.get(url)
                 response.raise_for_status()
         except httpx.HTTPError as exc:
-            raise PdfAdapterError(f"Error downloading PDF from {url}: {exc}") from exc
+            error_type = type(exc).__name__
+            raise PdfAdapterError(f"Error downloading PDF; error_type={error_type}") from exc
 
         return (
             response.content,
@@ -159,7 +160,8 @@ def _extract_pdf_pages(pdf_bytes: bytes, source_url: str) -> list[str]:
             with pdfplumber.open(tmp_path) as pdf:
                 pages = [_clean_page_text(page.extract_text() or "") for page in pdf.pages]
     except Exception as exc:
-        raise PdfAdapterError(f"Could not extract PDF text from {source_url}: {exc}") from exc
+        error_type = type(exc).__name__
+        raise PdfAdapterError(f"Could not extract PDF text; error_type={error_type}") from exc
 
     if not pages or not any(page.strip() for page in pages):
         raise PdfTextExtractionError(
@@ -182,5 +184,4 @@ def _source_key_from_ref(value: str) -> str:
         return parsed.netloc
     path = Path(value)
     return path.stem or value
-
 

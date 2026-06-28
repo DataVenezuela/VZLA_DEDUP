@@ -35,7 +35,14 @@ from scrapers.exporters.staging_exporter import StagingConfig, StagingExporter
 from scrapers.models import Person
 from scrapers.models.source import SourceConfig
 from scrapers.pipelines import run_pipeline as rp
-from scrapers.pipelines.run_pipeline import _get_adapter, run_pipeline
+from scrapers.pipelines.run_pipeline import (
+    _apply_confidence,
+    _apply_pii,
+    _enrich_records,
+    _get_adapter,
+    _parse_pages,
+    run_pipeline,
+)
 
 # ---------------------------------------------------------------------------
 # Constantes y helpers
@@ -197,6 +204,14 @@ def _mock_adapter(records: list[dict] | None = None) -> MagicMock:
     return adapter
 
 
+def _assert_private_values_absent(*texts: object) -> None:
+    joined = "\n".join(str(text) for text in texts)
+    assert "raw_value=123" not in joined
+    assert "private_value=555" not in joined
+    assert "123" not in joined
+    assert "555" not in joined
+
+
 # ---------------------------------------------------------------------------
 # Test: limpieza de recursos del adapter
 # ---------------------------------------------------------------------------
@@ -215,6 +230,106 @@ class TestAdapterCleanup:
         ):
             run_pipeline(config_path=demo_config, output_dir=tmp_path / "out")
         adapter.close.assert_called()
+
+
+# ---------------------------------------------------------------------------
+# Tests: logging seguro de excepciones
+# ---------------------------------------------------------------------------
+
+class TestSafeExceptionLogging:
+    def test_parse_pages_error_is_logged_without_pii(
+        self, caplog: pytest.LogCaptureFixture
+    ) -> None:
+        parser = MagicMock()
+        parser.parse.side_effect = RuntimeError("raw_value=123 private_value=555")
+        errors: list[str] = []
+
+        caplog.set_level("WARNING", logger="scrapers.pipelines.run_pipeline")
+        records, errors = _parse_pages(parser, [_encuentralos_raw([{"id": 1}])], limit=None)
+
+        assert records == []
+        assert "Error parseando pagina" in caplog.text
+        assert "error_type=RuntimeError" in caplog.text
+        _assert_private_values_absent(caplog.text, errors)
+
+    def test_enrich_records_error_is_logged_without_pii(
+        self, monkeypatch: pytest.MonkeyPatch, caplog: pytest.LogCaptureFixture
+    ) -> None:
+        def _raise_location(_value: str) -> dict[str, str]:
+            raise RuntimeError("raw_value=123 private_value=555")
+
+        monkeypatch.setattr(rp, "normalize_location", _raise_location)
+        records = [{
+            "_entity_type": "Person",
+            "event_id": _EVENT_ID,
+            "full_name": "Persona Sintetica",
+            "last_known_location": "Lara",
+            "fuente": "encuentralos_tecnosoft",
+        }]
+        errors: list[str] = []
+
+        caplog.set_level("WARNING", logger="scrapers.pipelines.run_pipeline")
+        enriched = _enrich_records(records, errors)
+
+        assert enriched == records
+        assert "Error en enriquecimiento" in caplog.text
+        assert "error_type=RuntimeError" in caplog.text
+        _assert_private_values_absent(caplog.text, errors)
+
+    def test_confidence_error_is_logged_without_pii(
+        self, monkeypatch: pytest.MonkeyPatch, caplog: pytest.LogCaptureFixture
+    ) -> None:
+        def _raise_confidence(_entity: object) -> float:
+            raise RuntimeError("raw_value=123 private_value=555")
+
+        monkeypatch.setattr(rp, "confidence_score", _raise_confidence)
+        records = [{
+            "_entity_type": "Person",
+            "event_id": _EVENT_ID,
+            "full_name": "Persona Sintetica",
+            "fuente": "encuentralos_tecnosoft",
+        }]
+        errors: list[str] = []
+
+        caplog.set_level("WARNING", logger="scrapers.pipelines.run_pipeline")
+        result = _apply_confidence(records, errors)
+
+        assert result == records
+        assert "Error calculando confidence_score" in caplog.text
+        assert "error_type=RuntimeError" in caplog.text
+        _assert_private_values_absent(caplog.text, errors)
+
+    def test_run_pipeline_fatal_source_error_is_logged_without_pii(
+        self, tmp_path: Path, demo_config: Path, caplog: pytest.LogCaptureFixture
+    ) -> None:
+        transport = _StagingTransport()
+        caplog.set_level("ERROR", logger="scrapers.pipelines.run_pipeline")
+        with patch.dict(os.environ, _STAGING_ENV, clear=False), _patch_exporter(transport), patch(
+            "scrapers.pipelines.run_pipeline._run_source",
+            side_effect=RuntimeError("raw_value=123 private_value=555"),
+        ):
+            summary = run_pipeline(config_path=demo_config, output_dir=tmp_path / "out")
+
+        assert summary["sources_processed"] == 0
+        assert any("Error fatal en fuente" in e for e in summary["errors"])
+        assert "error_type=RuntimeError" in caplog.text
+        assert "Traceback" not in caplog.text
+        _assert_private_values_absent(caplog.text, summary["errors"])
+
+    def test_load_sources_error_is_reported_without_pii(
+        self, tmp_path: Path, demo_config: Path, caplog: pytest.LogCaptureFixture
+    ) -> None:
+        caplog.set_level("ERROR", logger="scrapers.pipelines.run_pipeline")
+        with patch(
+            "scrapers.pipelines.run_pipeline.load_sources",
+            side_effect=RuntimeError("raw_value=123 private_value=555"),
+        ):
+            summary = run_pipeline(config_path=demo_config, output_dir=tmp_path / "out")
+
+        assert summary["sources_processed"] == 0
+        assert any("Error cargando config" in e for e in summary["errors"])
+        assert "error_type=RuntimeError" in caplog.text
+        _assert_private_values_absent(caplog.text, summary["errors"])
 
 
 # ---------------------------------------------------------------------------
@@ -587,6 +702,51 @@ sources:
         assert summary["sources_processed"] == 0
         assert len(summary["errors"]) == 1
 
+    def test_adapter_close_failure_is_logged_without_pii(
+        self, tmp_path: Path, caplog: pytest.LogCaptureFixture
+    ) -> None:
+        """close() fallido no debe tumbar el pipeline ni loguear datos crudos."""
+        cfg = _make_demo_config(tmp_path, """
+project:
+  event_id: 8f14e45f-ceea-467e-bd5d-0a4f2e0c1a3a
+  default_country: Venezuela
+sources:
+  - id: encuentralos_tecnosoft
+    name: Encuentralos tecnosoft
+    type: api_json
+    enabled: true
+    trust_tier: C
+    url: "https://encuentralos.tecnosoft.dev/api/personas"
+    refresh_minutes: 30
+    parser_asignado: encuentralos
+""")
+
+        class ClosingAdapter:
+            default_path = "/api/personas"
+
+            def fetch_all(self, _path: str):
+                return iter([_encuentralos_raw([{"id": 1}])])
+
+            def close(self) -> None:
+                raise RuntimeError("raw_value=123 private_value=555")
+
+        caplog.set_level("WARNING", logger="scrapers.pipelines.run_pipeline")
+        transport = _StagingTransport()
+        with patch.dict(os.environ, _STAGING_ENV, clear=False), _patch_exporter(transport), patch(
+            "scrapers.pipelines.run_pipeline._get_adapter",
+            return_value=ClosingAdapter(),
+        ), patch(
+            "scrapers.pipelines.run_pipeline._get_parser",
+            return_value=_mock_parser(),
+        ):
+            summary = run_pipeline(config_path=cfg, output_dir=tmp_path / "out")
+
+        assert summary["sources_processed"] == 1
+        assert "Error cerrando adapter" in caplog.text
+        assert "ClosingAdapter" in caplog.text
+        assert "RuntimeError" in caplog.text
+        _assert_private_values_absent(caplog.text, summary["errors"])
+
 
 # ---------------------------------------------------------------------------
 # Tests: limite por fuente
@@ -644,7 +804,9 @@ class TestMinorProtectionEndToEnd:
         assert data["cedula_masked"] is None
         assert data["last_known_location"] == "Lara"
 
-    def test_minor_record_omitted_when_protection_raises(self, tmp_path: Path, demo_config: Path) -> None:
+    def test_minor_protection_error_is_logged_without_pii_and_omits_record(
+        self, tmp_path: Path, demo_config: Path, caplog: pytest.LogCaptureFixture
+    ) -> None:
         persons = [
             Person(
                 full_name="NINIO DEMO PEREZ",
@@ -661,11 +823,15 @@ class TestMinorProtectionEndToEnd:
         ), patch(
             "scrapers.pipelines.run_pipeline._get_parser", return_value=_mock_parser(persons)
         ), patch(
-            "scrapers.pipelines.run_pipeline.protect_minor_fields", side_effect=ValueError("boom")
+            "scrapers.pipelines.run_pipeline.protect_minor_fields",
+            side_effect=RuntimeError("raw_value=123 private_value=555"),
         ):
+            caplog.set_level("ERROR", logger="scrapers.pipelines.run_pipeline")
             summary = run_pipeline(config_path=demo_config, output_dir=tmp_path / "out")
         assert transport.posts == []
         assert any("registro omitido" in e for e in summary["errors"])
+        assert "RuntimeError" in caplog.text
+        _assert_private_values_absent(caplog.text, summary["errors"])
 
 
 # ---------------------------------------------------------------------------
@@ -684,6 +850,31 @@ class TestPIISalt:
             summary = run_pipeline(config_path=demo_config, output_dir=tmp_path / "out")
         assert summary["sources_processed"] == 1
         assert summary["staging_sent"] == 2
+
+    def test_pii_rescue_failure_is_logged_without_pii(
+        self, caplog: pytest.LogCaptureFixture
+    ) -> None:
+        """Un fallo doble en PII se reporta sin imprimir payload ni excepción cruda."""
+
+        class BrokenEntity:
+            def model_dump(self) -> dict:
+                raise RuntimeError("raw_value=123 private_value=555")
+
+        errors: list[str] = []
+        caplog.set_level("WARNING", logger="scrapers.pipelines.run_pipeline")
+
+        records = _apply_pii([BrokenEntity()], errors)  # type: ignore[list-item]
+
+        assert records == []
+        assert len(errors) == 2
+        assert "Error en etapa PII" in caplog.text
+        assert "No se pudo rescatar registro" in caplog.text
+        assert "BrokenEntity" in caplog.text
+        assert "RuntimeError" in caplog.text
+        assert "123" not in caplog.text
+        assert "555" not in caplog.text
+        assert "123" not in "\n".join(errors)
+        assert "555" not in "\n".join(errors)
 
 
 # ---------------------------------------------------------------------------

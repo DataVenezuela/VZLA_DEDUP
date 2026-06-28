@@ -80,6 +80,15 @@ def _error_summary(message: str) -> dict[str, Any]:
     }
 
 
+def _safe_error_message(prefix: str, exc: Exception, **safe_context: object) -> str:
+    """Construye mensajes de error sin payloads ni texto crudo de excepcion."""
+    parts = [prefix]
+    for key, value in safe_context.items():
+        parts.append(f"{key}={value}")
+    parts.append(f"error_type={type(exc).__name__}")
+    return "; ".join(parts)
+
+
 # ---------------------------------------------------------------------------
 # Registry: adapters y parsers
 # ---------------------------------------------------------------------------
@@ -239,7 +248,14 @@ def _parse_pages(
         try:
             batch = parser.parse(raw)
         except Exception as exc:
-            msg = f"Error parseando pagina {raw.get('page')}: {exc}"
+            page = raw.get("page")
+            safe_page = page if isinstance(page, int) or page is None else "unknown"
+            msg = _safe_error_message(
+                "Error parseando pagina",
+                exc,
+                page=safe_page,
+                parser_type=type(parser).__name__,
+            )
             log.warning(msg)
             errors.append(msg)
             continue
@@ -294,16 +310,26 @@ def _apply_pii(
             d["_entity_type"] = type(entity).__name__
             result.append(d)
         except Exception as exc:
-            msg = f"Error en etapa PII para {type(entity).__name__}: {exc}"
+            entity_type = type(entity).__name__
+            msg = (
+                "Error en etapa PII; "
+                f"entity_type={entity_type} error_type={type(exc).__name__}"
+            )
             log.warning(msg)
             errors.append(msg)
             # Intentar rescatar el registro sin PII antes que perderlo
             try:
                 d = _strip_raw_pii(entity.model_dump())
-                d["_entity_type"] = type(entity).__name__
+                d["_entity_type"] = entity_type
                 result.append(d)
-            except Exception:
-                pass
+            except Exception as rescue_exc:
+                rescue_msg = (
+                    "No se pudo rescatar registro tras error PII; "
+                    f"entity_type={entity_type} "
+                    f"error_type={type(rescue_exc).__name__}"
+                )
+                log.warning(rescue_msg)
+                errors.append(rescue_msg)
     return result
 
 
@@ -350,7 +376,11 @@ def _enrich_records(records: list[dict], errors: list[str]) -> list[dict]:
 
             enriched.append(rec)
         except Exception as exc:
-            msg = f"Error en enriquecimiento: {exc}"
+            msg = _safe_error_message(
+                "Error en enriquecimiento",
+                exc,
+                entity_type=rec.get("_entity_type", "unknown"),
+            )
             log.warning(msg)
             errors.append(msg)
             enriched.append(rec)  # anadir sin enriquecer antes que perder
@@ -373,8 +403,13 @@ def _apply_confidence(
             score = confidence_score(entity)
             rec["confidence_score"] = score
         except Exception as exc:
-            log.warning("Error calculando confidence_score: %s", exc)
-            errors.append(f"Error en confidence_score: {exc}")
+            msg = _safe_error_message(
+                "Error calculando confidence_score",
+                exc,
+                entity_type=rec.get("_entity_type", "unknown"),
+            )
+            log.warning(msg)
+            errors.append(msg)
         result.append(rec)
     return result
 
@@ -393,8 +428,13 @@ def _apply_minor_protection(
         try:
             result.append(protect_minor_fields(rec))
         except Exception as exc:
-            log.error("Error en proteccion de menores, registro omitido: %s", exc)
-            errors.append(f"Error en proteccion de menores (registro omitido): {exc}")
+            msg = _safe_error_message(
+                "Error en proteccion de menores; registro omitido",
+                exc,
+                entity_type=rec.get("_entity_type", "unknown"),
+            )
+            log.error(msg)
+            errors.append(msg)
             # Fail-closed: no se agrega el registro sin redactar.
     return result
 
@@ -433,7 +473,16 @@ def _run_source(
         # que se cierra antes de omitir la fuente para no filtrar recursos en
         # cada corrida (fuentes con parser_asignado no registrado).
         if hasattr(adapter, "close"):
-            adapter.close()
+            try:
+                adapter.close()
+            except Exception as exc:
+                msg = _safe_error_message(
+                    "Error cerrando adapter",
+                    exc,
+                    adapter_type=type(adapter).__name__,
+                )
+                log.warning(msg)
+                all_errors.append(f"[{source.id}] {msg}")
         # La omision queda VISIBLE en el summary del run (no solo en un
         # log.warning silencioso): se contabiliza como error de fuente y
         # fluye a summary["errors"] via all_errors, igual que el resto de
@@ -455,8 +504,14 @@ def _run_source(
         if hasattr(adapter, "close"):
             try:
                 adapter.close()
-            except Exception:
-                pass
+            except Exception as exc:
+                msg = _safe_error_message(
+                    "Error cerrando adapter",
+                    exc,
+                    adapter_type=type(adapter).__name__,
+                )
+                log.warning(msg)
+                source_errors.append(msg)
 
     log.info("%s: %d pagina(s) descargadas", source.id, len(pages))
 
@@ -539,8 +594,9 @@ def run_pipeline(
     try:
         project, sources = load_sources(config_path)
     except Exception as exc:
-        log.error("Error cargando config: %s", exc)
-        return _error_summary(f"Error cargando config: {exc}")
+        msg = _safe_error_message("Error cargando config", exc)
+        log.error(msg)
+        return _error_summary(msg)
 
     # event_id es obligatorio en cada Person/AcopioCenter exportado (FK NOT NULL
     # en la DB) — se valida una sola vez aqui en vez de dejar que cada registro
@@ -549,7 +605,7 @@ def run_pipeline(
     try:
         event_id = validate_uuid_str(str(raw_event_id))
     except ValueError:
-        msg = f"project.event_id invalido o ausente en config: {raw_event_id!r}"
+        msg = "project.event_id invalido o ausente en config"
         log.error(msg)
         return _error_summary(msg)
 
@@ -573,8 +629,13 @@ def run_pipeline(
                 staging_errors += len(result.errors)
                 sources_processed += 1
             except Exception as exc:
-                msg = f"[{source.id}] Error fatal en fuente: {exc}"
-                log.error(msg, exc_info=True)
+                msg = _safe_error_message(
+                    f"[{source.id}] Error fatal en fuente",
+                    exc,
+                    source_id=source.id,
+                    source_type=source.type,
+                )
+                log.error(msg)
                 all_errors.append(msg)
                 # Continuar con la siguiente fuente
     finally:

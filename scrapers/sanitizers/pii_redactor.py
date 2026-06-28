@@ -45,7 +45,11 @@ def _redacted_placeholder(finding: dict) -> str:
             if not _missing_secret_warned:
                 logger.warning("PII_HMAC_SECRET no está configurado; usando redacción estática para PII sensible.")
                 _missing_secret_warned = True
-            logger.debug("Fallback estático para %s: %s", finding.get("kind"), exc)
+            logger.debug(
+                "Fallback estático para %s; error_type=%s",
+                finding.get("kind"),
+                type(exc).__name__,
+            )
 
     return f"[REDACTED_{kind}]"
 
