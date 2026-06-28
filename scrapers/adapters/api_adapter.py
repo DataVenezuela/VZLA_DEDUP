@@ -85,8 +85,8 @@ def _backoff_delay(attempt: int) -> float:
     ``attempt`` empieza en 1.  Fórmula:
         delay = min(base * 2^(attempt-1), max) + random(0, 1)
     """
-    exp = _BACKOFF_BASE * (2 ** (attempt - 1))
-    capped = min(exp, _BACKOFF_MAX)
+    exp: float = _BACKOFF_BASE * (2 ** (attempt - 1))
+    capped: float = min(exp, _BACKOFF_MAX)
     return capped + random.random()
 
 
