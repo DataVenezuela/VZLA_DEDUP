@@ -67,7 +67,10 @@ class _StagingTransport(httpx.BaseTransport):
             external_id = body.get("external_id")
             if external_id in self._seen_external_ids:
                 return httpx.Response(409, json={"duplicate": True})
-            self._seen_external_ids.add(external_id)
+            # Solo se marca como visto si el envio fue exitoso: un status de
+            # error (p.ej. 500) puede reintentarse y debe seguir fallando.
+            if self.aportes_status in (200, 201):
+                self._seen_external_ids.add(external_id)
             return httpx.Response(self.aportes_status, json={"ok": True})
         if path.startswith("/api/source_watermarks"):
             if request.method == "GET":
@@ -192,6 +195,26 @@ def _mock_adapter(records: list[dict] | None = None) -> MagicMock:
     adapter.fetch_all.return_value = iter([_encuentralos_raw(records or [{"id": 1}])])
     adapter.close = MagicMock()
     return adapter
+
+
+# ---------------------------------------------------------------------------
+# Test: limpieza de recursos del adapter
+# ---------------------------------------------------------------------------
+
+class TestAdapterCleanup:
+    def test_adapter_closed_when_parser_missing(
+        self, tmp_path: Path, demo_config: Path
+    ) -> None:
+        """Fuente con parser no registrado: el adapter se cierra igual, no se filtra."""
+        adapter = _mock_adapter()
+        transport = _StagingTransport()
+        with patch.dict(os.environ, _STAGING_ENV, clear=False), _patch_exporter(transport), patch(
+            "scrapers.pipelines.run_pipeline._get_adapter", return_value=adapter
+        ), patch(
+            "scrapers.pipelines.run_pipeline._get_parser", return_value=None
+        ):
+            run_pipeline(config_path=demo_config, output_dir=tmp_path / "out")
+        adapter.close.assert_called()
 
 
 # ---------------------------------------------------------------------------
@@ -415,6 +438,8 @@ class TestWatermarkEndToEnd:
     def test_watermark_not_advanced_on_failure(self, tmp_path: Path, demo_config: Path) -> None:
         transport = _StagingTransport(aportes_status=500)
         with patch.dict(os.environ, _STAGING_ENV, clear=False), _patch_exporter(transport), patch(
+            "scrapers.exporters.staging_exporter.time.sleep", lambda *_: None
+        ), patch(
             "scrapers.pipelines.run_pipeline._get_adapter", return_value=_mock_adapter()
         ), patch(
             "scrapers.pipelines.run_pipeline._get_parser", return_value=_mock_parser()

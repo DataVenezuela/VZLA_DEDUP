@@ -112,18 +112,19 @@ def acopio_block_keys(rec: dict[str, object]) -> list[str]:
 
 # --- Despachadores por tipo -------------------------------------------------
 
-def dedup_key(rec: dict[str, object], entity_type: str) -> str:
+def dedup_key(rec: dict[str, object], entity_type: str) -> str | None:
     """Hash de identidad de contenido por tipo (dedup_hash que va al backend).
 
     Event/AcopioCenter usan el fingerprint v1. Person usa su deterministic_id
-    (ya calculado en el enriquecimiento del pipeline); cadena vacia si falta.
+    (ya calculado en el enriquecimiento del pipeline); None si falta, para que
+    el backend distinga ausencia de hash de un hash real (columna nullable).
     """
     if entity_type == "Event":
         return event_dedup_key(rec)
     if entity_type == "AcopioCenter":
         return acopio_dedup_key(rec)
     det = rec.get("deterministic_id")
-    return str(det) if det else ""
+    return str(det) if det else None
 
 
 def block_keys(rec: dict[str, object], entity_type: str) -> list[str]:

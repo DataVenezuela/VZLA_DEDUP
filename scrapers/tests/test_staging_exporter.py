@@ -107,6 +107,19 @@ class TestPayload:
         _exporter(t).export_source([_person("Juan")], source_fetched_ats=["2026-06-24T15:00:00Z"])
         assert t.posts[0]["dedup_version"] == "person-detid-v1"
 
+    def test_content_hash_has_sha256_prefix(self) -> None:
+        t = _RecordingTransport()
+        _exporter(t).export_source([_person("Juan")], source_fetched_ats=["2026-06-24T15:00:00Z"])
+        assert t.posts[0]["content_hash"].startswith("sha256:")
+
+    def test_dedup_hash_null_when_no_deterministic_id(self) -> None:
+        t = _RecordingTransport()
+        _exporter(t).export_source(
+            [_person("Juan", det=None)], source_fetched_ats=["2026-06-24T15:00:00Z"]
+        )
+        # dedup_hash None se serializa como JSON null.
+        assert t.posts[0]["dedup_hash"] is None
+
 
 # --- idempotencia -----------------------------------------------------------
 
@@ -198,6 +211,84 @@ class TestResponseClassification:
         assert len(res.errors) >= 1 and res.sent == 0
 
 
+# --- retry del POST ---------------------------------------------------------
+
+class _FlakyTransport(httpx.BaseTransport):
+    """Devuelve los status de ``aportes_sequence`` en orden para /api/aportes."""
+
+    def __init__(self, aportes_sequence: list[int]) -> None:
+        self.aportes_sequence = aportes_sequence
+        self.attempts = 0
+        self.watermark_puts: list[dict[str, Any]] = []
+
+    def handle_request(self, request: httpx.Request) -> httpx.Response:
+        path = request.url.path
+        if path == "/api/aportes":
+            idx = min(self.attempts, len(self.aportes_sequence) - 1)
+            status = self.aportes_sequence[idx]
+            self.attempts += 1
+            return httpx.Response(status, json={"ok": True})
+        if path.startswith("/api/source_watermarks"):
+            if request.method == "GET":
+                return httpx.Response(404)
+            self.watermark_puts.append(json.loads(request.content))
+            return httpx.Response(200, json={"ok": True})
+        return httpx.Response(404)
+
+
+class TestPostRetry:
+    def test_503_then_200_ends_as_sent(self) -> None:
+        t = _FlakyTransport([503, 200])
+        cfg = StagingConfig(api_key="k", base_url="https://staging.test", source_slug="demo")
+        client = httpx.Client(base_url="https://staging.test", transport=t)
+        exp = StagingExporter(cfg, client=client, run_id="run-1")
+        with patch("scrapers.exporters.staging_exporter.time.sleep", lambda *_: None):
+            res = exp.export_source(
+                [_person("Juan")], source_fetched_ats=["2026-06-24T15:00:00Z"]
+            )
+        assert res.sent == 1
+        assert res.errors == []
+        assert t.attempts == 2  # 503 reintentado, luego 200
+
+    def test_persistent_503_ends_as_error(self) -> None:
+        t = _FlakyTransport([503])
+        cfg = StagingConfig(api_key="k", base_url="https://staging.test", source_slug="demo")
+        client = httpx.Client(base_url="https://staging.test", transport=t)
+        exp = StagingExporter(cfg, client=client, run_id="run-1")
+        with patch("scrapers.exporters.staging_exporter.time.sleep", lambda *_: None):
+            res = exp.export_source(
+                [_person("Juan")], source_fetched_ats=["2026-06-24T15:00:00Z"]
+            )
+        assert res.sent == 0
+        assert res.errors
+        assert t.watermark_puts == []
+
+
+# --- source_errors bloquean el watermark (C6) -------------------------------
+
+class TestSourceErrorsWatermark:
+    def test_source_errors_block_watermark_advance(self) -> None:
+        t = _RecordingTransport(aportes_status=201)
+        res = _exporter(t).export_source(
+            [_person("Juan")],
+            source_fetched_ats=["2026-06-24T16:00:00Z"],
+            source_errors=["menor descartado por proteccion fail-closed"],
+        )
+        # El POST fue exitoso, pero el watermark NO avanza por source_errors.
+        assert res.sent == 1
+        assert t.watermark_puts == []
+
+    def test_empty_source_errors_allow_watermark_advance(self) -> None:
+        t = _RecordingTransport(aportes_status=201)
+        _exporter(t).export_source(
+            [_person("Juan")],
+            source_fetched_ats=["2026-06-24T16:00:00Z"],
+            source_errors=[],
+        )
+        assert t.watermark_puts
+        assert t.watermark_puts[-1]["watermark_at"] == "2026-06-24T16:00:00Z"
+
+
 # --- dry-run ----------------------------------------------------------------
 
 class TestDryRun:
@@ -216,6 +307,22 @@ class TestDryRun:
     def test_from_env_none_when_missing(self) -> None:
         with patch.dict(os.environ, {}, clear=True):
             assert StagingConfig.from_env() is None
+
+    def test_from_env_no_vars_logs_info(self, caplog: Any) -> None:
+        with patch.dict(os.environ, {}, clear=True):
+            with caplog.at_level("INFO", logger="scrapers.exporters.staging_exporter"):
+                assert StagingConfig.from_env() is None
+        assert any(r.levelname == "INFO" for r in caplog.records)
+        assert not any(r.levelname == "ERROR" for r in caplog.records)
+
+    def test_from_env_partial_config_logs_error(self, caplog: Any) -> None:
+        env = {"STAGING_API_KEY": "k", "STAGING_BASE_URL": "https://staging.test"}
+        with patch.dict(os.environ, env, clear=True):
+            with caplog.at_level("ERROR", logger="scrapers.exporters.staging_exporter"):
+                assert StagingConfig.from_env() is None
+        errors = [r for r in caplog.records if r.levelname == "ERROR"]
+        assert errors
+        assert "STAGING_SOURCE_SLUG" in errors[0].getMessage()
 
     def test_from_env_builds_config_when_present(self) -> None:
         env = {

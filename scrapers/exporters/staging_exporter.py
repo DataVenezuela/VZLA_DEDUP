@@ -17,11 +17,13 @@ import hashlib
 import json
 import logging
 import os
+import time
 import uuid
 from dataclasses import dataclass, field
 
 import httpx
 
+from scrapers.adapters._shared import backoff_delay, sha256_hex
 from scrapers.adapters.http_client import USER_AGENT
 from scrapers.dedup import specs
 
@@ -30,6 +32,11 @@ log = logging.getLogger(__name__)
 _DEFAULT_WATERMARK = "1970-01-01T00:00:00Z"
 _APORTES_PATH = "/api/aportes"
 _WATERMARKS_PATH = "/api/source_watermarks"
+
+# Status HTTP transitorios que ameritan reintento del POST a /api/aportes.
+# Definido localmente (no se mueve a _shared para no chocar con PR #61).
+_RETRYABLE_STATUS = frozenset({429, 500, 502, 503, 504})
+_MAX_POST_RETRIES = 4
 
 
 @dataclass(frozen=True)
@@ -42,20 +49,36 @@ class StagingConfig:
 
     @classmethod
     def from_env(cls) -> StagingConfig | None:
-        """Construye la config desde STAGING_*; None si falta cualquiera.
+        """Construye la config desde STAGING_*; None si falta alguna.
 
-        El None gatilla el dry-run silencioso en StagingExporter.
+        Distingue el dry-run intencional (NINGUNA STAGING_* seteada, dev local)
+        de una config parcial en prod (algunas seteadas, otras no): la primera
+        loguea a INFO, la segunda a ERROR listando las faltantes. En ambos casos
+        devuelve None (gatilla el dry-run) sin abortar el pipeline.
         """
-        api_key = os.getenv("STAGING_API_KEY")
-        base_url = os.getenv("STAGING_BASE_URL")
-        source_slug = os.getenv("STAGING_SOURCE_SLUG")
-        if not (api_key and base_url and source_slug):
-            log.info("staging_exporter deshabilitado: faltan STAGING_* (dry-run)")
+        values = {
+            "STAGING_API_KEY": os.getenv("STAGING_API_KEY"),
+            "STAGING_BASE_URL": os.getenv("STAGING_BASE_URL"),
+            "STAGING_SOURCE_SLUG": os.getenv("STAGING_SOURCE_SLUG"),
+        }
+        present = [k for k, v in values.items() if v]
+        if not present:
+            log.info(
+                "staging_exporter deshabilitado: ninguna STAGING_* seteada "
+                "(dry-run intencional)"
+            )
+            return None
+        if len(present) < len(values):
+            missing = [k for k, v in values.items() if not v]
+            log.error(
+                "staging_exporter mal configurado: faltan %s; entrando en dry-run",
+                missing,
+            )
             return None
         return cls(
-            api_key=api_key,
-            base_url=base_url.rstrip("/"),
-            source_slug=source_slug,
+            api_key=str(values["STAGING_API_KEY"]),
+            base_url=str(values["STAGING_BASE_URL"]).rstrip("/"),
+            source_slug=str(values["STAGING_SOURCE_SLUG"]),
         )
 
 
@@ -69,9 +92,13 @@ class ExportResult:
 
 
 def _content_hash(body: dict[str, object]) -> str:
-    """sha256 hex de json canonico del payload de negocio limpio."""
+    """sha256 con prefijo del repo ("sha256:") sobre json canonico del payload.
+
+    Delega en scrapers.adapters._shared.sha256_hex para mantener el formato
+    consistente con el resto del pipeline (adapters rss/pdf/playwright/html/api).
+    """
     raw = json.dumps(body, ensure_ascii=False, sort_keys=True, separators=(",", ":"))
-    return hashlib.sha256(raw.encode("utf-8")).hexdigest()
+    return sha256_hex(raw.encode("utf-8"))
 
 
 def compute_external_id(rec: dict[str, object], entity_type: str) -> str:
@@ -171,6 +198,43 @@ class StagingExporter:
         )
         return resp.status_code in (200, 201)
 
+    def _post_with_retry(self, path: str, payload: dict[str, object]) -> httpx.Response:
+        """POST con exponential backoff en status transitorios y errores de red.
+
+        Reintenta en 429/500/502/503/504 y en TimeoutException/NetworkError
+        usando backoff_delay (de _shared). Devuelve la ultima response; relanza
+        la ultima excepcion de transporte si se agotan los reintentos sin response.
+        """
+        assert self._client is not None
+        last_exc: httpx.HTTPError | None = None
+        resp: httpx.Response | None = None
+        for attempt in range(1, _MAX_POST_RETRIES + 1):
+            try:
+                resp = self._client.post(path, json=payload)
+            except (httpx.TimeoutException, httpx.NetworkError) as exc:
+                last_exc = exc
+                if attempt < _MAX_POST_RETRIES:
+                    delay = backoff_delay(attempt)
+                    log.warning(
+                        "%s en POST %s intento %d/%d — reintento en %.1fs",
+                        type(exc).__name__, path, attempt, _MAX_POST_RETRIES, delay,
+                    )
+                    time.sleep(delay)
+                continue
+            if resp.status_code in _RETRYABLE_STATUS and attempt < _MAX_POST_RETRIES:
+                delay = backoff_delay(attempt)
+                log.warning(
+                    "HTTP %s en POST %s intento %d/%d — reintento en %.1fs",
+                    resp.status_code, path, attempt, _MAX_POST_RETRIES, delay,
+                )
+                time.sleep(delay)
+                continue
+            return resp
+        if resp is not None:
+            return resp
+        assert last_exc is not None
+        raise last_exc
+
     # -- export ---------------------------------------------------------------
 
     def export_source(
@@ -178,8 +242,16 @@ class StagingExporter:
         records: list[dict[str, object]],
         *,
         source_fetched_ats: list[str],
+        source_errors: list[str] | None = None,
     ) -> ExportResult:
-        """Exporta los records de una fuente; avanza el watermark si todo OK."""
+        """Exporta los records de una fuente; avanza el watermark si todo OK.
+
+        ``source_errors`` son errores previos de la fuente (parse, PII,
+        enriquecimiento y el fail-closed de proteccion de menores) que se
+        inyectan despues en run_pipeline. Si no estan vacios, el watermark NO
+        avanza: evita perder silenciosamente registros descartados que nunca
+        llegaron a staging (p.ej. un menor) saltando su fetched_at.
+        """
         result = ExportResult()
 
         if not self.enabled or self._client is None or self.config is None:
@@ -201,7 +273,7 @@ class StagingExporter:
         for rec in records:
             payload = self._build_payload(rec)
             try:
-                resp = self._client.post(_APORTES_PATH, json=payload)
+                resp = self._post_with_retry(_APORTES_PATH, payload)
             except httpx.HTTPError as exc:
                 result.errors.append(f"POST {_APORTES_PATH} fallo: {exc}")
                 continue
@@ -215,7 +287,10 @@ class StagingExporter:
                     f"para external_id={payload['external_id']}"
                 )
 
-        if not result.errors and source_fetched_ats:
+        # El watermark solo avanza si no hubo NINGUN error: ni de POST/PUT ni
+        # previo de la fuente (source_errors).
+        has_source_errors = bool(source_errors)
+        if not result.errors and not has_source_errors and source_fetched_ats:
             new_watermark = max(source_fetched_ats)
             try:
                 if not self._set_watermark(new_watermark):

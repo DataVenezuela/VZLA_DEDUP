@@ -429,6 +429,11 @@ def _run_source(
     # 2. Parser
     parser = _get_parser(source, event_id)
     if parser is None:
+        # El adapter ya fue creado (puede tener browser/conexion abierta), asi
+        # que se cierra antes de omitir la fuente para no filtrar recursos en
+        # cada corrida (fuentes con parser_asignado no registrado).
+        if hasattr(adapter, "close"):
+            adapter.close()
         return ExportResult()
 
     # 3. Fetch
@@ -470,7 +475,13 @@ def _run_source(
     records = _apply_minor_protection(records, source_errors)
 
     # 9. Staging export
-    result = exporter.export_source(records, source_fetched_ats=fetched_ats)
+    # source_errors se pasa para que el watermark NO avance si hubo errores
+    # previos de la fuente (parse/PII/enriquecimiento/proteccion de menores).
+    result = exporter.export_source(
+        records,
+        source_fetched_ats=fetched_ats,
+        source_errors=source_errors,
+    )
     # Arrastrar los errores previos de la fuente al frente del resultado.
     result.errors[0:0] = source_errors
 

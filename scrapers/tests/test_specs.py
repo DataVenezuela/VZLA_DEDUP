@@ -114,4 +114,4 @@ def test_acopio_dedup_key_includes_event_id() -> None:
 def test_dedup_key_person_uses_deterministic_id() -> None:
     rec = _person(deterministic_id="detid123")
     assert dedup_key(rec, "Person") == "detid123"
-    assert dedup_key(_person(), "Person") == ""
+    assert dedup_key(_person(), "Person") is None
