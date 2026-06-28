@@ -779,6 +779,196 @@ Por eso:
 
 ---
 
+## Ejemplos prácticos de deduplicación
+
+Los siguientes ejemplos muestran cómo se comporta el pipeline de deduplicación de personas en distintos escenarios.
+
+### Ejemplo 1: Match obvio (misma persona, misma fuente)
+
+```text
+Entrada:
+  Person A: "Jose Luis Perez", "Maracaibo, Zulia", cedula_hmac="abc123"
+  Person B: "Jose Luis Perez", "Maracaibo, Zulia", cedula_hmac="abc123"
+
+Blocking:
+  deterministic_id = sha256("JRPS|Maracaibo, Zulia")[:16] = "a1b2c3..."
+  → Ambos van al mismo bloque "det:a1b2c3"
+
+Scoring:
+  name     = 1.00  × 0.40 = 0.4000  (Jaro-Winkler exacto)
+  cedula   = 1.00  × 0.30 = 0.3000  (match exacto)
+  location = 1.00  × 0.15 = 0.1500  (match exacto)
+  age      = 0.50  × 0.10 = 0.0500  (sin datos → neutral)
+  status   = 1.00  × 0.05 = 0.0500
+  ─────────────────────────────────
+  Total = 0.9500  → ✅ CANDIDATO (supera 0.75)
+
+Salida: dedup_candidates.jsonl
+  {left_id: "a1b2c3", right_id: "a1b2c3", score: 0.95, decision: "pending"}
+```
+
+---
+
+### Ejemplo 2: Misma persona, ubicación ligeramente distinta
+
+```text
+Entrada:
+  Person A: "Maria Garcia", "Caracas, Miranda"
+  Person B: "María García", "Caracas"
+
+Blocking:
+  A: deterministic_id = sha256("MRGC|Caracas, Miranda")[:16] = "x1y2..."
+  B: deterministic_id = sha256("MRGC|Caracas")[:16] = "z9w8..."
+  → Bloques DIFERENTES (ubicación distinta)
+
+Scoring: NO SE EJECUTA (están en bloques distintos)
+
+Salida: sin candidatos
+```
+
+**¿Por qué?** La ubicación "Caracas, Miranda" ≠ "Caracas". El bloque se forma después de normalizar, y `"Caracas"` y `"Caracas, Miranda"` son strings distintos. Esto es intencional — evita falsos positivos masivos.
+
+---
+
+### Ejemplo 3: Nombres similares, persona distinta
+
+```text
+Entrada:
+  Person A: "Jose Luis Perez", "Maracaibo, Zulia"
+  Person B: "Jose Luis Lopez", "Maracaibo, Zulia"
+
+Blocking:
+  deterministic_id = sha256("JRPS|Maracaibo, Zulia")[:16]
+  → Ambos van al mismo bloque (mismo phonetic hash + misma ubicación)
+
+Scoring:
+  name     = 0.87  × 0.40 = 0.3480  (Jaro-Winkler: "Perez" ≠ "Lopez")
+  cedula   = 0.00  × 0.30 = 0.0000  (sin cédula)
+  location = 1.00  × 0.15 = 0.1500
+  age      = 0.50  × 0.10 = 0.0500
+  status   = 1.00  × 0.05 = 0.0500
+  ─────────────────────────────────
+  Total = 0.5980  → ❌ NO CANDIDATO (por debajo de 0.75)
+```
+
+---
+
+### Ejemplo 4: Cédula como señal fuerte
+
+```text
+Entrada:
+  Person A: "Pedro Gonzalez", "Valencia, Carabobo", cedula_hmac="def456"
+  Person B: "Pedro González", "Valencia", cedula_hmac="def456"
+
+Blocking:
+  A: deterministic_id = sha256("PRDGZ|Valencia, Carabobo")[:16]
+  B: deterministic_id = sha256("PRDGZ|Valencia")[:16]
+  → Bloques DISTINTOS por ubicación
+
+  PERO: si B tuviera "Valencia, Carabobo" → mismo bloque → scoring
+
+Con cédula match (en mismo bloque):
+  name     = 0.92  × 0.40 = 0.3680
+  cedula   = 1.00  × 0.30 = 0.3000  ← SEÑAL FUERTE
+  location = 0.50  × 0.15 = 0.0750  (parcial)
+  ─────────────────────────────────
+  Total = 0.7930  → ✅ CANDIDATO
+```
+
+---
+
+### Ejemplo 5: Persona mínima (sin cédula ni edad)
+
+```text
+Entrada:
+  Person A: "Ana Martinez", "Barquisimeto, Lara"
+  Person B: "Ana Martinez", "Barquisimeto, Lara"
+
+Blocking:
+  Ambos en mismo bloque (deterministic_id idéntico)
+
+Scoring:
+  name     = 1.00  × 0.40 = 0.4000
+  cedula   = 0.00  × 0.30 = 0.0000  (no hay cédula)
+  location = 1.00  × 0.15 = 0.1500
+  age      = 0.50  × 0.10 = 0.0500  (sin edad → neutral)
+  status   = 1.00  × 0.05 = 0.0500
+  ─────────────────────────────────
+  Total = 0.6500  → ❌ NO CANDIDATO
+
+  Sin cédula ni edad, el score máximo es 0.65.
+  Se necesita al menos nombre + ubicación + UNA señal más
+  (cédula o edad) para superar el umbral.
+```
+
+---
+
+### Ejemplo 6: Cluster transitivo (A~B, B~C)
+
+```text
+Entrada:
+  Person A: "Luis Hernandez", "Caracas, Miranda"
+  Person B: "Luis Hernández", "Caracas, Miranda"
+  Person C: "Luis Hernandez", "Caracas"
+
+Blocking:
+  A y B → mismo bloque (det:id1)
+  C → bloque distinto (det:id2)
+
+Scoring:
+  A vs B → score 0.82 → ✅ candidato
+  B vs C → NO comparados (bloques distintos)
+  A vs C → NO comparados (bloques distintos)
+
+Resultado:
+  candidatos: [(A, B)]
+  C queda SIN candidato
+
+Nota: el clustering NO es transitivo entre bloques.
+Cada bloque es independiente. Si C tuviera la misma
+ubicación normalizada que A y B, estarían en el mismo
+bloque y se compararían todos.
+```
+
+---
+
+### Diagrama del pipeline
+
+```text
+                    ┌─────────────────────┐
+                    │  Person records      │
+                    │  (con deterministic_id) │
+                    └─────────┬───────────┘
+                              │
+                    ┌─────────▼───────────┐
+                    │  BLOCKING            │
+                    │  Agrupar por         │
+                    │  deterministic_id    │
+                    └─────────┬───────────┘
+                              │
+                    ┌─────────▼───────────┐
+                    │  SIMILARITY SCORING  │
+                    │  Comparar pares      │
+                    │  dentro de bloques   │
+                    │  Jaro-Winkler +      │
+                    │  multi-campo         │
+                    └─────────┬───────────┘
+                              │
+                    ┌─────────▼───────────┐
+                    │  CLUSTERING          │
+                    │  Score ≥ 0.75 →      │
+                    │  DedupCandidate      │
+                    │  decision: "pending" │
+                    └─────────┬───────────┘
+                              │
+                    ┌─────────▼───────────┐
+                    │  EXPORT              │
+                    │  dedup_candidates.   │
+                    │  jsonl               │
+                    │  → Revisión humana   │
+                    └─────────────────────┘
+```
+
 ## 9. Technical Validator
 
 El validator revisa que las entidades cumplan el contrato técnico antes de exportarse.
