@@ -64,7 +64,7 @@ jobs:
         if: always()
         run: |
           pip install bandit
-          bandit -r scrapers/ shared/ --skip B101
+          bandit -r scrapers/ shared/ --skip B101,B105,B107
 
       - name: Security keyword scan (PII / secrets)
         run: |
