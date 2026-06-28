@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import json
-import subprocess
+import subprocess  # nosec B404
 import sys
 from pathlib import Path
 
@@ -12,7 +12,7 @@ _STARTER_CONFIG = Path("scrapers/config/sources.venezuela.starter.yaml")
 
 
 def _run_cli(*args: str) -> subprocess.CompletedProcess[str]:
-    return subprocess.run(
+    return subprocess.run(  # nosec B603
         [sys.executable, "-m", "scrapers.cli", *args],
         capture_output=True,
         text=True,
