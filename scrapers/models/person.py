@@ -18,6 +18,7 @@ class Person(BaseModel):
     cedula_hmac: str | None = None
     cedula_masked: str | None = None
     age_range: dict[str, int] | None = None
+    is_minor: bool | None = None
     last_known_location: str | None = None
     status: str = "missing"
     verification_status: str = "unverified"

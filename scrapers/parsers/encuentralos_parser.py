@@ -17,6 +17,7 @@ estado / municipio last_known_location  (normalize_location → str legible)
 status             status  (ver _STATUS_MAP abajo)
 observaciones      nota
 edad               age_range  (edad puntual → {"min": N, "max": N})
+edad               is_minor  (True si edad < 18; None si no hay edad)
 foto               foto  (URL o None — sin modificar, el parser no descarga)
 id                 nota  (prefijo "[id:N]" si hay observaciones)
 
@@ -134,6 +135,13 @@ def _age_range(edad: Any) -> dict[str, int] | None:
         return {"min": age, "max": age}
     except (TypeError, ValueError):
         return None
+
+
+def _derive_is_minor(age_range: dict[str, int] | None) -> bool | None:
+    """True/False si la edad puntual permite determinarlo; None si no se conoce."""
+    if age_range is None:
+        return None
+    return age_range["max"] < 18
 
 
 def _build_nota(record: dict[str, Any]) -> str | None:
@@ -287,8 +295,9 @@ class EncuentralosParser:
         # ── status ────────────────────────────────────────────────────
         status = _map_status(rec.get("status"))
 
-        # ── edad → age_range ──────────────────────────────────────────
+        # ── edad → age_range / is_minor ─────────────────────────────────
         age_range = _age_range(rec.get("edad"))
+        is_minor = _derive_is_minor(age_range)
 
         # ── nota (id externo + observaciones) ─────────────────────────
         nota = _build_nota(rec)
@@ -306,6 +315,7 @@ class EncuentralosParser:
                 cedula_hmac=cedula_hmac,
                 cedula_masked=cedula_masked,
                 age_range=age_range,
+                is_minor=is_minor,
                 last_known_location=last_known_location,
                 status=status,
                 trust_tier=DEFAULT_TRUST_TIER,

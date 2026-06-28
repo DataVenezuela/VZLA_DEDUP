@@ -22,6 +22,13 @@ def test_person_valid_and_defaults():
     assert p.confidence_score == 0.0
     assert p.cedula_hmac is None
     assert p.foto is None
+    assert p.is_minor is None
+
+
+def test_person_is_minor_accepts_true_false_and_none():
+    assert Person(full_name="A", event_id=_EVENT_ID, fuente="s", is_minor=True).is_minor is True
+    assert Person(full_name="A", event_id=_EVENT_ID, fuente="s", is_minor=False).is_minor is False
+    assert Person(full_name="A", event_id=_EVENT_ID, fuente="s", is_minor=None).is_minor is None
 
 
 def test_person_type_error_is_clear():
@@ -189,6 +196,7 @@ def test_serialization_round_trip():
         "cedula_hmac",
         "cedula_masked",
         "age_range",
+        "is_minor",
         "last_known_location",
         "status",
         "verification_status",

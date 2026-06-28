@@ -589,6 +589,100 @@ sources:
 
 
 # ---------------------------------------------------------------------------
+# Tests: protección de menores end-to-end
+# ---------------------------------------------------------------------------
+
+class TestMinorProtectionEndToEnd:
+    """Un Person con is_minor=True debe llegar a persons.jsonl con foto y
+    cedula_masked anulados, y la ubicación acotada a estado."""
+
+    def _cfg(self, tmp_path: Path) -> Path:
+        return _make_demo_config(tmp_path, """
+project:
+  event_id: 8f14e45f-ceea-467e-bd5d-0a4f2e0c1a3a
+  default_country: Venezuela
+sources:
+  - id: encuentralos_tecnosoft
+    name: Encuentralos tecnosoft
+    type: api_json
+    enabled: true
+    trust_tier: C
+    url: "https://encuentralos.tecnosoft.dev/api/personas"
+    refresh_minutes: 30
+    parser_asignado: encuentralos
+""")
+
+    def _mock_adapter(self) -> MagicMock:
+        adapter = MagicMock()
+        adapter.default_path = "/api/personas"
+        adapter.fetch_all.return_value = iter([_encuentralos_raw([{"id": 1}])])
+        adapter.close = MagicMock()
+        return adapter
+
+    def test_minor_fields_redacted_in_export(self, tmp_path: Path) -> None:
+        parser = MagicMock()
+        parser.parse.return_value = [
+            Person(
+                full_name="NIÑO DEMO PEREZ",
+                event_id=_EVENT_ID,
+                is_minor=True,
+                foto="https://example.org/foto.jpg",
+                cedula_masked="V-****1234",
+                last_known_location="Iribarren, Lara",
+                fuente="encuentralos_tecnosoft",
+            )
+        ]
+        out = tmp_path / "out"
+
+        with patch(
+            "scrapers.pipelines.run_pipeline._get_adapter",
+            return_value=self._mock_adapter(),
+        ), patch(
+            "scrapers.pipelines.run_pipeline._get_parser",
+            return_value=parser,
+        ):
+            run_pipeline(config_path=self._cfg(tmp_path), output_dir=out)
+
+        records = _read_jsonl(out / "persons.jsonl")
+        assert len(records) == 1
+        rec = records[0]
+        assert rec["foto"] is None
+        assert rec["cedula_masked"] is None
+        assert rec["last_known_location"] == "Lara"
+
+    def test_non_minor_fields_untouched_in_export(self, tmp_path: Path) -> None:
+        parser = MagicMock()
+        parser.parse.return_value = [
+            Person(
+                full_name="ADULTO DEMO PEREZ",
+                event_id=_EVENT_ID,
+                is_minor=False,
+                foto="https://example.org/foto.jpg",
+                cedula_masked="V-****1234",
+                last_known_location="Iribarren, Lara",
+                fuente="encuentralos_tecnosoft",
+            )
+        ]
+        out = tmp_path / "out"
+
+        with patch(
+            "scrapers.pipelines.run_pipeline._get_adapter",
+            return_value=self._mock_adapter(),
+        ), patch(
+            "scrapers.pipelines.run_pipeline._get_parser",
+            return_value=parser,
+        ):
+            run_pipeline(config_path=self._cfg(tmp_path), output_dir=out)
+
+        records = _read_jsonl(out / "persons.jsonl")
+        assert len(records) == 1
+        rec = records[0]
+        assert rec["foto"] == "https://example.org/foto.jpg"
+        assert rec["cedula_masked"] == "V-****1234"
+        assert rec["last_known_location"] == "Iribarren, Lara"
+
+
+# ---------------------------------------------------------------------------
 # Tests: PII_SALT presente → tokenize_pii_fields se ejecuta
 # ---------------------------------------------------------------------------
 
