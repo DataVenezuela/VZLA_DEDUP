@@ -21,7 +21,7 @@ Cuarentena (Issue #88)
 NINGUN registro se descarta en silencio. Cada punto donde el pipeline antes
 perdia datos (parser ausente, parseo fallido, PII no tratable, fail-closed de
 proteccion de menores) ahora enruta el registro a la Quarantine DB via
-``QuarantineExporter`` (POST /api/v1/quarantine) para revision humana. El preview
+``QuarantineExporter`` (POST /api/quarantine) para revision humana. El preview
 va redactado; el run continua con las demas fuentes.
 
 La deduplicacion ya no ocurre por fuente: el dedup_hash/external_id deterministas
@@ -100,6 +100,64 @@ def _error_summary(message: str) -> dict[str, Any]:
         "quarantine_errors": 0,
         "errors": [message],
     }
+
+
+# ---------------------------------------------------------------------------
+# Cuarentena: construccion de registros no procesables
+# ---------------------------------------------------------------------------
+# Principio inamovible (Issue #88): NINGUN registro se descarta en silencio. En
+# una crisis donde cada registro puede ser una vida, todo lo que hoy se perderia
+# (parser ausente, error de parseo, PII no redactable, fail-closed de menores)
+# va a la Quarantine DB para que pase por ojo humano. El preview se manda SIEMPRE
+# redactado; pii_findings_summary lleva conteos por tipo, nunca valores en claro.
+
+def _to_text(value: object) -> str:
+    """Coacciona el contenido crudo (str | dict | list) a texto para preview/hash."""
+    if isinstance(value, str):
+        return value
+    try:
+        return json.dumps(value, ensure_ascii=False, sort_keys=True, default=str)
+    except Exception:
+        return str(value)
+
+
+def _pii_summary(text: str) -> dict[str, object] | None:
+    """Resumen de hallazgos PII como conteos por tipo. Sin valores en claro.
+
+    Devuelve None si no hay hallazgos (la columna jsonb queda null).
+    """
+    summary: dict[str, int] = {}
+    for finding in detect_pii(text):
+        kind = str(finding.get("kind", "unknown"))
+        summary[kind] = summary.get(kind, 0) + 1
+    return dict(summary) if summary else None
+
+
+def _quarantine_from_text(
+    *,
+    source: SourceConfig,
+    text: str,
+    reason_code: str,
+    risk_level: str,
+    detail: str,
+    source_url: str | None = None,
+) -> QuarantineRecord:
+    """Arma un QuarantineRecord desde contenido crudo o serializado.
+
+    ``payload_hash`` se calcula sobre el texto ORIGINAL (permite verificar el
+    payload exacto aun tras destruirlo). ``payload_preview_redacted`` se redacta
+    con ``redact_pii`` para no filtrar PII en claro al revisor.
+    """
+    return QuarantineRecord(
+        source_slug=source.id,
+        reason_code=reason_code,
+        risk_level=risk_level,
+        source_url=source_url or source.url,
+        reason_detail=detail,
+        payload_preview_redacted=redact_pii(text),
+        payload_hash=quarantine_payload_hash(text),
+        pii_findings_summary=_pii_summary(text),
+    )
 
 
 # ---------------------------------------------------------------------------
@@ -575,7 +633,16 @@ def _run_source(
     # 1. Adapter
     adapter = _get_adapter(source)
     if adapter is None:
-        return ExportResult()
+        # Tipo de fuente sin adapter implementado: NO hay payload que cuarentenar
+        # (nunca se hizo fetch), pero la omision NO debe ser silenciosa — queda
+        # VISIBLE en summary["errors"] para que el operador sepa que esa fuente
+        # entera no se proceso (Issue #88, principio "nada invisible").
+        msg = (
+            f"adapter no implementado para type={source.type!r} "
+            f"(fuente {source.id} omitida — sin payload que cuarentenar)"
+        )
+        all_errors.append(f"[{source.id}] {msg}")
+        return ExportResult(errors=[msg])
 
     # 2. Parser
     parser = _get_parser(source, event_id)
@@ -590,10 +657,8 @@ def _run_source(
         )
         all_errors.append(f"[{source.id}] {msg}")
         try:
-            # Sin parser no hay staging, asi que tampoco watermark que avance:
-            # se baja TODO el contenido (epoch) para no perder registros que
-            # cuarentenar (el filtrado incremental es solo para el path normal).
-            pages = _fetch_pages(adapter, source, "1970-01-01T00:00:00Z")
+            watermark_at = exporter.get_watermark(source.id)
+            pages = _fetch_pages(adapter, source, watermark_at)
         except Exception as exc:
             all_errors.append(
                 f"[{source.id}] fetch fallo al intentar cuarentenar sin parser: {exc}"
@@ -641,7 +706,6 @@ def _run_source(
 
     # 4. Parse
     entities, parse_errors = _parse_pages(parser, pages, limit, source, quarantine_batch)
-    
     source_errors.extend(parse_errors)
     log.info("%s: %d entidades parseadas", source.id, len(entities))
     
@@ -690,6 +754,7 @@ def _process_source_safe(
     all_errors: list[str],
     event_id: str,
     exporter: StagingExporter,
+    
 ) -> tuple[ExportResult, list[QuarantineRecord], bool]:
     """Ejecuta ``_run_source`` capturando cualquier excepcion fatal de la fuente.
 
@@ -701,14 +766,17 @@ def _process_source_safe(
     """
 
     quarantine_batch: list[QuarantineRecord] = []
+
+    quarantine_batch: list[QuarantineRecord] = []
     try:
         result = _run_source(source, limit, all_errors, event_id, exporter, quarantine_batch)
-        return result,quarantine_batch, True
+        return result, quarantine_batch, True
     except Exception as exc:
         msg = f"[{source.id}] Error fatal en fuente: {exc}"
         log.error(msg, exc_info=True)
         all_errors.append(msg)
-        return ExportResult(),quarantine_batch, False
+        return ExportResult(), quarantine_batch, False
+        
 
 
 # ---------------------------------------------------------------------------
@@ -748,6 +816,7 @@ def run_pipeline(
     -------
     dict con keys: sources_processed, staging_sent, staging_duplicates,
                    staging_errors, quarantined, quarantine_errors, errors.
+                   staging_errors, quarantined, quarantine_errors, errors.
     """
     output_dir = Path(output_dir)
     output_dir.mkdir(parents=True, exist_ok=True)
@@ -781,6 +850,7 @@ def run_pipeline(
     quarantined = 0
     quarantine_errors = 0
     sources_processed = 0
+    quarantine_batch: list[QuarantineRecord] = []
     all_errors: list[str] = []
 
     # Un solo run_id por corrida, COMPARTIDO entre staging y cuarentena: permite
@@ -790,46 +860,39 @@ def run_pipeline(
     # vars). Ambos hacen dry-run silencioso si faltan sus credenciales.
     exporter = StagingExporter(StagingConfig.from_env(), run_id=run_id)
     quarantine_exporter = QuarantineExporter(QuarantineConfig.from_env(), run_id=run_id)
-    quarantine_batch: list[QuarantineRecord] = []
     
     try:
         if max_workers <= 1 or len(enabled) <= 1:
+        
             for source in enabled:
-            # Batch de cuarentena fresco por fuente; se vacia en el finally aunque
-            # _run_source lance, para no perder los registros ya marcados.
-                
-                result, thread_qb, ok = _process_source_safe(
-                    source, limit, all_errors, event_id, exporter
-                )
+                result, thread_quarantine_batch, ok = _process_source_safe(source, limit, all_errors, event_id, exporter)
                 staging_sent += result.sent
                 staging_duplicates += result.duplicates
                 staging_errors += len(result.errors)
                 sources_processed += int(ok)
                 if(len(quarantine_batch) > 0):
-                    quarantine_batch.extend(thread_qb)
+                    quarantine_batch.extend(thread_quarantine_batch)
                 else:
-                    quarantine_batch = thread_qb 
-
+                    quarantine_batch = thread_quarantine_batch
         else:
             with ThreadPoolExecutor(max_workers=max_workers) as pool:
                 futures = [
-                    pool.submit(_process_source_safe, source, limit, all_errors, event_id, exporter)
+                    pool.submit(_process_source_safe, source, limit, all_errors, event_id, exporter, quarantine_batch)
                     for source in enabled
                 ]
                 for future in as_completed(futures):
-                    result, thread_qb, ok = future.result()
+                    result, thread_quarantine_batch, ok = future.result()
                     staging_sent += result.sent
                     staging_duplicates += result.duplicates
                     staging_errors += len(result.errors)
-                    sources_processed += int(ok),
-                
-                if(len(quarantine_batch) > 0):
-                    quarantine_batch.extend(thread_qb)
-                else:
-                    quarantine_batch = thread_qb 
-                   
+                    sources_processed += int(ok)
+                    if(len(quarantine_batch) > 0):
+                        quarantine_batch.extend(thread_quarantine_batch)
+                    else:
+                        quarantine_batch = thread_quarantine_batch
+    
+     
     finally:
-        
         if quarantine_batch:
             qres = quarantine_exporter.quarantine_many(quarantine_batch)
             quarantined += qres.sent
@@ -839,9 +902,11 @@ def run_pipeline(
             )
             log.info(
                 "%s: %d a cuarentena (%d duplicados, %d errores)",
-                source.id, qres.sent, qres.duplicates, len(qres.errors))
-            exporter.close()
-            quarantine_exporter.close()
+                source.id, qres.sent, qres.duplicates, len(qres.errors),
+            ) 
+
+        exporter.close()
+        quarantine_exporter.close()
 
     summary = {
         "sources_processed": sources_processed,
@@ -850,10 +915,14 @@ def run_pipeline(
         "staging_errors": staging_errors,
         "quarantined": quarantined,
         "quarantine_errors": quarantine_errors,
+        "quarantined": quarantined,
+        "quarantine_errors": quarantine_errors,
         "errors": all_errors,
     }
 
     log.info(
+        "Pipeline finalizado — fuentes=%d enviados=%d duplicados=%d cuarentena=%d errores=%d",
+        sources_processed, staging_sent, staging_duplicates, quarantined, len(all_errors),
         "Pipeline finalizado — fuentes=%d enviados=%d duplicados=%d cuarentena=%d errores=%d",
         sources_processed, staging_sent, staging_duplicates, quarantined, len(all_errors),
     )

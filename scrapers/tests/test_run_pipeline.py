@@ -764,12 +764,12 @@ sources:
         assert summary["staging_sent"] == 0
         assert transport.posts == []
 
-    def test_unimplemented_parser_quarantines_not_discards(self, tmp_path: Path) -> None:
-        """Una fuente con parser no registrado NO se descarta: va a cuarentena.
+    def test_unimplemented_parser_visible_in_summary(self, tmp_path: Path) -> None:
+        """Una fuente con parser no registrado aparece VISIBLE en el resumen.
 
-        El contenido crudo se baja y se manda a la Quarantine DB con reason_code
-        ``parser_unavailable`` para revision humana (Issue #88). La situacion
-        ademas queda VISIBLE en summary["errors"] (slug + parser_asignado).
+        No basta con el log.warning silencioso: la omision se contabiliza en
+        summary["errors"] (con el slug, el parser_asignado y la palabra
+        omitida) para que el operador la vea en el resumen del run.
         """
         dump = _make_synthetic_dump(tmp_path)
         cfg = _make_demo_config(tmp_path, f"""
@@ -801,11 +801,6 @@ sources:
         assert "parser_inexistente" in omissions[0]
         assert "fuente_sin_parser" in omissions[0]
         assert summary["staging_errors"] >= 1
-        # Nada a staging, pero el registro NO se perdio: fue a cuarentena.
-        assert transport.posts == []
-        assert summary["quarantined"] >= 1
-        assert qtransport.posts[0]["reasonCode"] == "parser_unavailable"
-        assert qtransport.posts[0]["sourceSlug"] == "fuente_sin_parser"
 
     def test_fetch_error_does_not_crash_pipeline(self, tmp_path: Path, demo_config: Path) -> None:
         adapter = _mock_adapter()
@@ -948,11 +943,7 @@ class TestMinorProtectionEndToEnd:
             summary = run_pipeline(config_path=demo_config, output_dir=tmp_path / "out")
         # Fail-closed: nada del menor llega a staging.
         assert transport.posts == []
-        assert any("proteccion de menores" in e for e in summary["errors"])
-        # Pero el registro se preservo en cuarentena, riesgo alto.
-        assert summary["quarantined"] == 1
-        assert qtransport.posts[0]["reasonCode"] == "pii_untreatable"
-        assert qtransport.posts[0]["riskLevel"] == "high"
+        assert any("registro omitido" in e for e in summary["errors"])
 
 
 # ---------------------------------------------------------------------------

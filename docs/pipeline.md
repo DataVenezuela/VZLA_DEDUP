@@ -712,7 +712,7 @@ aceptable. Todo lo que el pipeline antes perdía va a la **Quarantine DB** para
 revisión humana.
 
 `scrapers/exporters/quarantine_exporter.py` (`QuarantineExporter`) espeja al
-`StagingExporter`: un `POST /api/v1/quarantine` por registro al backend, cliente
+`StagingExporter`: un `POST /api/quarantine` por registro al backend, cliente
 `httpx` inyectable, retry/backoff en 429/5xx, y **dry-run silencioso** si faltan
 `QUARANTINE_API_KEY` / `QUARANTINE_BASE_URL`. Comparte el `run_id` de la corrida
 con el staging exporter para correlacionar qué se exportó y qué se cuarentenó.
@@ -734,6 +734,10 @@ scraper no ejecuta SQL.
 Otros `reason_code` controlados (los produce el backend o etapas futuras):
 `pdf_no_text`, `unclassified_sensitive`, `contradictory_sources`,
 `ambiguous_manual_review`.
+
+Un **type sin adapter** implementado omite la fuente entera: no hay payload que
+cuarentenar (nunca se hizo fetch), pero la omisión queda **visible** en
+`summary["errors"]` — nunca silenciosa.
 
 ### Reglas de PII en cuarentena
 
