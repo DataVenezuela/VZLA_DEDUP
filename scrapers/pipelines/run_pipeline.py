@@ -456,11 +456,11 @@ def _run_source(
     # El watermark se lee ANTES del fetch para acotar la ventana
     # (updated_after); en la primera corrida de la fuente (sin watermark
     # previo) vale "1970-01-01T00:00:00Z" y provoca backfill completo.
-    # El close() va en finally: si fetch_all() lanza (ej. PlaywrightAdapter
-    # agotando retries), el adapter puede mantener recursos vivos (browser,
-    # conexiones) y el error sube igual al orquestador principal.
-    watermark_at = exporter.get_watermark(source.id)
+    # get_watermark() va DENTRO del try/finally: aunque hace fail-open en
+    # httpx.HTTPError, un fallo no contemplado (ej. JSON malformado) no debe
+    # dejar el adapter sin cerrar (browser, conexiones) ni saltarse el close().
     try:
+        watermark_at = exporter.get_watermark(source.id)
         pages = _fetch_pages(adapter, source, watermark_at)
     finally:
         if hasattr(adapter, "close"):

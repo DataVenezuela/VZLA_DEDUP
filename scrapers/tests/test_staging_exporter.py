@@ -340,6 +340,22 @@ class TestGetWatermark:
 
         assert _exporter(_FailingTransport()).get_watermark("fuente-a") == "1970-01-01T00:00:00Z"
 
+    def test_returns_default_on_malformed_json_body(self) -> None:
+        """200 con body no-JSON no debe propagar json.JSONDecodeError (fail-open)."""
+        class _Transport(httpx.BaseTransport):
+            def handle_request(self, request: httpx.Request) -> httpx.Response:
+                return httpx.Response(200, content=b"not json")
+
+        assert _exporter(_Transport()).get_watermark("fuente-a") == "1970-01-01T00:00:00Z"
+
+    def test_returns_default_on_non_dict_json_body(self) -> None:
+        """200 con JSON valido pero no-dict (ej. lista) tampoco debe propagar."""
+        class _Transport(httpx.BaseTransport):
+            def handle_request(self, request: httpx.Request) -> httpx.Response:
+                return httpx.Response(200, json=["watermarkAt", "2026-06-20T00:00:00Z"])
+
+        assert _exporter(_Transport()).get_watermark("fuente-a") == "1970-01-01T00:00:00Z"
+
 
 # --- auth ---------------------------------------------------------------
 

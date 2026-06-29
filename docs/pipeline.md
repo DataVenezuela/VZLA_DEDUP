@@ -656,15 +656,20 @@ múltiples fuentes (`run_pipeline._run_source` itera todas las habilitadas), as�
 que `source_slug` es siempre `source.id` y se pasa explícito en cada llamada a
 `StagingExporter.get_watermark(source_slug)` / `export_source(..., source_slug=...)`.
 Esto mantiene watermarks independientes por fuente dentro de la misma corrida.
+Como `source.id` viaja sin escapar en el path REST (`/api/source-watermarks/{id}`),
+`validate_sources_config` exige que sea único entre fuentes y que solo contenga
+`[a-zA-Z0-9_-]`.
 
 Antes de hacer el fetch, `_run_source` lee `exporter.get_watermark(source.id)`
-y lo pasa como `params={"updated_after": ...}` a `adapter.fetch_all(...)`. El
-`ApiAdapter` lo reenvía como query param real; el resto de adapters (RSS, PDF,
-HTML, Playwright, archivo local) lo ignora (no soportan filtrado server-side).
-Si la fuente nunca tuvo watermark, `get_watermark` devuelve el default
+**dentro** del mismo `try/finally` que cierra el adapter, y lo pasa como
+`params={"updated_after": ...}` a `adapter.fetch_all(...)`. El `ApiAdapter` lo
+reenvía como query param real; el resto de adapters (RSS, PDF, HTML,
+Playwright, archivo local) lo ignora (no soportan filtrado server-side). Si la
+fuente nunca tuvo watermark, `get_watermark` devuelve el default
 `1970-01-01T00:00:00Z`, lo que provoca backfill completo en la primera corrida.
-Una lectura fallida del watermark (red, 5xx) tampoco bloquea el fetch: degrada
-al mismo default en vez de abortar la fuente.
+Una lectura fallida del watermark (red, 5xx, o un body 2xx con JSON
+malformado/no-dict) tampoco bloquea el fetch ni filtra el cierre del adapter:
+degrada al mismo default en vez de abortar la fuente.
 
 Modo dry-run silencioso: si falta cualquiera de `STAGING_API_KEY` o
 `STAGING_BASE_URL`, el exporter queda deshabilitado, no abre cliente HTTP (cero

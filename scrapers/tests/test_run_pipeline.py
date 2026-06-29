@@ -217,6 +217,27 @@ class TestAdapterCleanup:
             run_pipeline(config_path=demo_config, output_dir=tmp_path / "out")
         adapter.close.assert_called()
 
+    def test_adapter_closed_when_get_watermark_raises(
+        self, tmp_path: Path, demo_config: Path
+    ) -> None:
+        """Si exporter.get_watermark() lanza (ej. error inesperado leyendo la
+        respuesta), el adapter ya creado (browser/conexiones) debe cerrarse
+        igual; el error de la fuente queda en el summary, no crashea el run.
+        """
+        adapter = _mock_adapter()
+        transport = _StagingTransport()
+        with patch.dict(os.environ, _STAGING_ENV, clear=False), _patch_exporter(transport), patch(
+            "scrapers.pipelines.run_pipeline._get_adapter", return_value=adapter
+        ), patch(
+            "scrapers.pipelines.run_pipeline._get_parser", return_value=_mock_parser()
+        ), patch.object(
+            StagingExporter, "get_watermark", side_effect=RuntimeError("boom")
+        ):
+            summary = run_pipeline(config_path=demo_config, output_dir=tmp_path / "out")
+        adapter.close.assert_called()
+        assert summary["sources_processed"] == 0
+        assert any("boom" in e for e in summary["errors"])
+
 
 # ---------------------------------------------------------------------------
 # Tests: summary y wiring basico

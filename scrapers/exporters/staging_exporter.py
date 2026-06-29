@@ -204,7 +204,10 @@ class StagingExporter:
 
         Fail-open al default (backfill completo) si el exporter esta
         deshabilitado (dry-run) o si la lectura falla: nunca debe bloquear el
-        fetch, y re-fetchear de mas es preferible a perder registros.
+        fetch, y re-fetchear de mas es preferible a perder registros. Cubre
+        tanto errores de red/HTTP como respuestas 2xx con body invalido (ej.
+        JSON malformado), que no son httpx.HTTPError pero igual deben
+        degradar al default en vez de propagarse.
         """
         if not self.enabled or self._client is None:
             return _DEFAULT_WATERMARK
@@ -215,7 +218,7 @@ class StagingExporter:
             resp.raise_for_status()
             payload = resp.json()
             return str(payload.get("watermarkAt", _DEFAULT_WATERMARK))
-        except httpx.HTTPError as exc:
+        except (httpx.HTTPError, ValueError, AttributeError) as exc:
             log.warning("no se pudo leer watermark de %s: %s", source_slug, exc)
             return _DEFAULT_WATERMARK
 
