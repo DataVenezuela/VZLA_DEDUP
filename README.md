@@ -25,6 +25,7 @@ scrapers/
 │   └── _shared.py                  # helpers compartidos (timestamp, hash, backoff)
 ├── parsers/
 │   ├── base.py                     # ParserProtocol
+│   ├── demo_text_parser.py         # Parser demo sintético → list[Person]
 │   └── encuentralos_parser.py      # Parser concreto → list[Person]
 ├── models/
 │   ├── person.py                   # Person (Pydantic)

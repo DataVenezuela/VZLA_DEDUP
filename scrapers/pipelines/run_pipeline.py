@@ -149,6 +149,7 @@ def _get_parser(source: SourceConfig, event_id: str) -> Any:
 
     Parsers concretos (producen entidades tipadas):
       encuentralos  -> EncuentralosParser -> list[Person]
+      demo_text     -> DemoTextParser -> list[Person] (fixture sintetico local)
 
     Si ``parser_asignado`` no tiene implementacion registrada se loguea un
     warning y se devuelve None; ``_run_source`` trata la ausencia de parser
@@ -165,6 +166,10 @@ def _get_parser(source: SourceConfig, event_id: str) -> Any:
         from scrapers.parsers.encuentralos_parser import EncuentralosParser
         secret = os.getenv("PII_HMAC_SECRET")
         return EncuentralosParser(event_id=event_id, secret=secret)
+
+    if pa == "demo_text":
+        from scrapers.parsers.demo_text_parser import DemoTextParser
+        return DemoTextParser(event_id=event_id)
 
     log.warning(
         "Parser %r no implementado (fuente=%s) — fuente omitida",
