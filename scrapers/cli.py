@@ -113,7 +113,6 @@ def _cmd_ingest(args: argparse.Namespace) -> None:
 def _cmd_consolidate(args: argparse.Namespace) -> None:
     from scrapers.dedup.deduplicator import deduplicate_typed_entities
     from scrapers.models import Event
-    from scrapers.outputs.jsonl_writer import write_jsonl
 
     output_dir = Path(args.output_dir)
     events_path = output_dir / "events.jsonl"
@@ -142,8 +141,8 @@ def _cmd_consolidate(args: argparse.Namespace) -> None:
 
     if events:
         deduped, n_removed = deduplicate_typed_entities(events)
-        deduped_dicts = [e.model_dump() for e in deduped]
-        write_jsonl(events_path, deduped_dicts)
+        lines = [json.dumps(e.model_dump(mode="json"), ensure_ascii=False) for e in deduped]
+        events_path.write_text("\n".join(lines) + "\n", encoding="utf-8")
         print(f"Consolidación: {len(records)} → {len(deduped)} eventos ({n_removed} duplicados)")
     else:
         print("0 eventos válidos para consolidar")
