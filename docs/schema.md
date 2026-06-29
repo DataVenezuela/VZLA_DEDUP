@@ -516,13 +516,64 @@ fue reducida en el `Person` asociado.
 
 ## 10. Entidad: `ACOPIO_CENTER`
 
-Tabla:
+### Estado actual en scrapers
+
+El modelo Pydantic vigente en este repo es `scrapers/models/acopio_center.py`.
+Es el contrato que deben cumplir los parsers hoy antes de enviar registros a
+staging. Deliberadamente es más pequeño que la proyección canónica deseada.
+
+Campos vigentes del modelo:
+
+| Campo | Tipo Python / JSON | Nullable | Valores / Notas |
+| ----- | ------------------ | -------: | --------------- |
+| `name` | `string` | no | Nombre del centro |
+| `event_id` | `string` UUID | no | Referencia al evento |
+| `location_text` | `string` | no | Ubicación legible o cruda normalizada |
+| `coordinates` | `object` | sí | Exactamente `{"lat": number, "lon": number}` |
+| `needs` | `array<string>` | no | Lista libre normalizada por parser cuando sea posible |
+| `status` | `string` | no | `active`, `full`, `closed`, `unverified` |
+| `trust_tier` | `string` | no | `A`, `B`, `C`, `D` |
+| `confidence_score` | `number` | no | 0.000–1.000 |
+| `fuente` | `string` | no | Fuente que produjo el registro |
+| `nota` | `string` | sí | Observaciones adicionales |
+
+Ejemplo vigente para parsers:
+
+```json
+{
+  "event_id": "f0e1d2c3-b4a5-6789-0fed-cba987654321",
+  "name": "Centro de Acopio Polideportivo Municipal San Felipe",
+  "location_text": "Polideportivo Municipal, San Felipe, Yaracuy",
+  "coordinates": {
+    "lat": 10.3401,
+    "lon": -68.7456
+  },
+  "needs": ["agua", "alimentos", "medicamentos"],
+  "status": "active",
+  "trust_tier": "B",
+  "confidence_score": 0.850,
+  "fuente": "acopio-ve.org",
+  "nota": null
+}
+```
+
+Los campos `acopio_id`, `location` estructurada, `last_verified_at`,
+`managing_org`, `contact_hmac`, `contact_masked`, `capacity` y `current_load`
+no existen hoy en el modelo Pydantic de scrapers. Si se agregan, debe hacerse
+como cambio de contrato y probablemente coordinado con el repo DB/API.
+
+### Proyección canónica / objetivo
+
+La tabla canónica objetivo sigue siendo:
 
 ```text
 acopio_centers
 ```
 
-### Campos
+Los campos siguientes describen la proyección canónica/serving esperada, no el
+payload vigente que un parser debe construir hoy.
+
+### Campos objetivo
 
 | Campo              | Tipo SQL         | Tipo JSONL                 | Nullable | Valores / Notas                   |
 | ------------------ | ---------------- | -------------------------- | -------: | --------------------------------- |
@@ -572,6 +623,8 @@ otro
 ```
 
 ### Ejemplo JSONL
+
+Ejemplo de proyección canónica objetivo:
 
 ```json
 {
@@ -748,6 +801,10 @@ El mapeo semántico vive en documentación y en app layer.
 
 ## `needs` en acopio como array de keywords
 
+Esta regla describe la proyección canónica objetivo. En el modelo Pydantic
+vigente de scrapers, `needs` es `list[str]` y no aplica un enum por validación
+de modelo.
+
 `needs` se mantiene como array porque un centro de acopio puede tener múltiples necesidades.
 
 Sin embargo, los valores deben ser keywords controladas por el enum `need_keyword`.
@@ -773,6 +830,10 @@ El enum es extensible: agregar un keyword nuevo no rompe registros existentes.
 ---
 
 ## `contact_hmac` / `contact_masked` en acopio
+
+Estos campos pertenecen a la proyección canónica/serving objetivo. No existen
+hoy en `scrapers.models.AcopioCenter`; un parser no debe inventarlos ni
+persistir contactos si la fuente no los expone bajo un contrato revisado.
 
 El contacto de un centro de acopio puede ser el teléfono personal de un voluntario, no necesariamente un número institucional.
 
@@ -838,6 +899,10 @@ Vista SQL: `public_persons`
 ## Vista pública: `acopio_centers`
 
 Vista SQL: `public_acopio`
+
+Esta vista corresponde a la proyección pública objetivo del plano DB/API. No
+es el shape que deben construir hoy los parsers de este repo; para parsers ver
+la sección `ACOPIO_CENTER` > "Estado actual en scrapers".
 
 | Campo | Tipo JSONL | Notas |
 |-------|-----------|-------|

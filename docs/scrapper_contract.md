@@ -89,35 +89,37 @@ Person(
 
 ### AcopioCenter
 
+El modelo Pydantic vigente en `scrapers/models/acopio_center.py` es
+minimalista a propósito. Un parser de scrapers debe crear solo estos campos;
+los campos canónicos más ricos (`acopio_id`, `location` estructurada,
+`contact_hmac`, `capacity`, etc.) pertenecen a la capa DB/API o a trabajo
+futuro cross-repo y no existen hoy en este modelo.
+
 ```python
 AcopioCenter(
     name="Centro de Acopio Polideportivo San Felipe",
-    location={
-        "raw": "Polideportivo Municipal, San Felipe, Yaracuy",
-        "estado": "Yaracuy",
-        "municipio": "San Felipe",
+    event_id="uuid-v4",
+    location_text="Polideportivo Municipal, San Felipe, Yaracuy",
+    coordinates={
         "lat": 10.3401,
-        "lng": -68.7456,
+        "lon": -68.7456,
     },
-    status="active",                           # "active" | "inactive" | "unknown"
+    status="active",                           # "active" | "full" | "closed" | "unverified"
     needs=["agua", "alimentos", "medicamentos"],
-    last_verified_at="2026-06-26T08:00:00Z",
-    managing_org="Cruz Roja Venezuela",
-    contact_hmac="9f1c3e...",                  # str | None — HMAC del teléfono
-    contact_masked="+58 412 ***7834",          # str | None
-    capacity=400,                              # int | None
-    current_load=283,                          # int | None
     confidence_score=0.85,                     # float 0.0–1.0
     trust_tier="B",
-    event_id="uuid-v4",
+    nota="observaciones adicionales",          # str | None
     fuente="acopio-ve.org",
 )
 ```
 
-**`needs`** acepta solo keywords normalizadas:
-`agua` · `alimentos` · `medicamentos` · `colchonetas` · `ropa` · `calzado` · `higiene` · `pañales` · `leche_formula` · `generador` · `combustible` · `herramientas` · `voluntarios` · `transporte` · `otro`
+**`coordinates`** usa exactamente las claves `lat` y `lon`.
+No usar `lng` en `AcopioCenter`.
 
-El parser mapea texto libre al keyword antes de crear la entidad. Valor desconocido → `"otro"`.
+**`needs`** es hoy `list[str]` sin enum enforced por el modelo Pydantic.
+Los parsers pueden normalizar keywords cuando la fuente lo permite, pero no
+deben inventar capacidad, organización responsable ni contacto si la fuente no
+lo expone en el contrato vigente.
 
 ### Event
 
