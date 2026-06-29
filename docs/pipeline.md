@@ -712,7 +712,7 @@ aceptable. Todo lo que el pipeline antes perdía va a la **Quarantine DB** para
 revisión humana.
 
 `scrapers/exporters/quarantine_exporter.py` (`QuarantineExporter`) espeja al
-`StagingExporter`: un `POST /api/quarantine` por registro al backend, cliente
+`StagingExporter`: un `POST /api/v1/quarantine` por registro al backend, cliente
 `httpx` inyectable, retry/backoff en 429/5xx, y **dry-run silencioso** si faltan
 `QUARANTINE_API_KEY` / `QUARANTINE_BASE_URL`. Comparte el `run_id` de la corrida
 con el staging exporter para correlacionar qué se exportó y qué se cuarentenó.

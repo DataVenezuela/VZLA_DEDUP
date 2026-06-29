@@ -197,7 +197,7 @@ class QuarantineExporter:
                 base_url=config.base_url,
                 headers={
                     # El backend dataVenezuela autentica al scraper con x-api-key
-                    # (authenticatePartner), no con Bearer. Ver POST /api/quarantine.
+                    # (authenticatePartner), no con Bearer. Ver POST /api/v1/quarantine.
                     "x-api-key": config.api_key,
                     "User-Agent": USER_AGENT,
                     "Accept": "application/json",
