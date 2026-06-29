@@ -233,6 +233,17 @@ class TestCoordinates:
         assert _coordinates(999.0, 0.0) is None
         assert _coordinates(0.0, 999.0) is None
 
+    def test_nan_and_inf_return_none(self) -> None:
+        # NaN/Inf no lanzan en float(), pero toda comparación con NaN da False
+        # (IEEE 754), así que `not -90 <= nan <= 90` es True y el chequeo de
+        # rango los descarta: nunca se cuelan como coordenadas.
+        nan = float("nan")
+        inf = float("inf")
+        assert _coordinates(nan, -66.0) is None
+        assert _coordinates(10.0, inf) is None
+        assert _coordinates(nan, inf) is None
+        assert _coordinates(-inf, -66.0) is None
+
 
 # ---------------------------------------------------------------------------
 # Tests: Robustez
