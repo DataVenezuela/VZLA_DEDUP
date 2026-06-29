@@ -113,32 +113,32 @@ class TestPayload:
         _exporter(t).quarantine(_record())
         body = t.posts[0]
         required = {
-            "run_id", "source_slug", "source_url", "reason_code", "reason_detail",
-            "risk_level", "payload_preview_redacted", "payload_hash",
-            "pii_findings_summary",
+            "runId", "sourceSlug", "sourceUrl", "reasonCode", "reasonDetail",
+            "riskLevel", "payloadPreviewRedacted", "payloadHash",
+            "piiFindingsSummary",
         }
         assert required.issubset(body.keys())
 
     def test_run_id_propagated(self) -> None:
         t = _RecordingTransport()
         _exporter(t).quarantine(_record())
-        assert t.posts[0]["run_id"] == "run-1"
+        assert t.posts[0]["runId"] == "run-1"
 
     def test_pii_summary_is_object(self) -> None:
         t = _RecordingTransport()
         _exporter(t).quarantine(_record())
-        assert t.posts[0]["pii_findings_summary"] == {"cedulas": 1, "telefonos": 0}
+        assert t.posts[0]["piiFindingsSummary"] == {"cedulas": 1, "telefonos": 0}
 
     def test_preview_truncated_to_max(self) -> None:
         t = _RecordingTransport()
         long_preview = "x" * (_PREVIEW_MAX_CHARS + 50)
         _exporter(t).quarantine(_record(payload_preview_redacted=long_preview))
-        assert len(t.posts[0]["payload_preview_redacted"]) == _PREVIEW_MAX_CHARS
+        assert len(t.posts[0]["payloadPreviewRedacted"]) == _PREVIEW_MAX_CHARS
 
     def test_short_preview_not_truncated(self) -> None:
         t = _RecordingTransport()
         _exporter(t).quarantine(_record(payload_preview_redacted="corto"))
-        assert t.posts[0]["payload_preview_redacted"] == "corto"
+        assert t.posts[0]["payloadPreviewRedacted"] == "corto"
 
 
 # --- hash -------------------------------------------------------------------
@@ -166,14 +166,14 @@ class TestReasonCodeFixtures:
         res = _exporter(t).quarantine(_record(reason_code=reason_code))
         assert res.sent == 1
         assert res.errors == []
-        assert t.posts[0]["reason_code"] == reason_code
+        assert t.posts[0]["reasonCode"] == reason_code
 
     @pytest.mark.parametrize("risk_level", sorted(RISK_LEVELS))
     def test_each_risk_level_is_sent(self, risk_level: str) -> None:
         t = _RecordingTransport(status=201)
         res = _exporter(t).quarantine(_record(risk_level=risk_level))
         assert res.sent == 1
-        assert t.posts[0]["risk_level"] == risk_level
+        assert t.posts[0]["riskLevel"] == risk_level
 
 
 # --- validacion -------------------------------------------------------------

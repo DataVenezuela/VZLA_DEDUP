@@ -638,8 +638,8 @@ sources:
         # Nada a staging, pero el registro NO se perdio: fue a cuarentena.
         assert transport.posts == []
         assert summary["quarantined"] >= 1
-        assert qtransport.posts[0]["reason_code"] == "parser_unavailable"
-        assert qtransport.posts[0]["source_slug"] == "fuente_sin_parser"
+        assert qtransport.posts[0]["reasonCode"] == "parser_unavailable"
+        assert qtransport.posts[0]["sourceSlug"] == "fuente_sin_parser"
 
     def test_fetch_error_does_not_crash_pipeline(self, tmp_path: Path, demo_config: Path) -> None:
         adapter = _mock_adapter()
@@ -743,8 +743,8 @@ class TestMinorProtectionEndToEnd:
         assert any("proteccion de menores" in e for e in summary["errors"])
         # Pero el registro se preservo en cuarentena, riesgo alto.
         assert summary["quarantined"] == 1
-        assert qtransport.posts[0]["reason_code"] == "pii_untreatable"
-        assert qtransport.posts[0]["risk_level"] == "high"
+        assert qtransport.posts[0]["reasonCode"] == "pii_untreatable"
+        assert qtransport.posts[0]["riskLevel"] == "high"
 
 
 # ---------------------------------------------------------------------------

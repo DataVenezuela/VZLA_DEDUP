@@ -210,18 +210,23 @@ class QuarantineExporter:
     # -- payload --------------------------------------------------------------
 
     def _build_payload(self, rec: QuarantineRecord) -> dict[str, object]:
-        """Arma el JSON del POST. Valida enums y trunca el preview."""
+        """Arma el JSON del POST. Valida enums y trunca el preview.
+
+        Las claves van en camelCase: es el contrato de la API de dataVenezuela
+        (el schema Zod de /api/v1/quarantine, igual que /api/aportes). El backend
+        mapea camelCase -> columnas snake_case en su capa de servicio.
+        """
         rec.validate()
         return {
-            "run_id": self.run_id,
-            "source_slug": rec.source_slug,
-            "source_url": rec.source_url,
-            "reason_code": rec.reason_code,
-            "reason_detail": rec.reason_detail,
-            "risk_level": rec.risk_level,
-            "payload_preview_redacted": _truncate_preview(rec.payload_preview_redacted),
-            "payload_hash": rec.payload_hash,
-            "pii_findings_summary": rec.pii_findings_summary,
+            "runId": self.run_id,
+            "sourceSlug": rec.source_slug,
+            "sourceUrl": rec.source_url,
+            "reasonCode": rec.reason_code,
+            "reasonDetail": rec.reason_detail,
+            "riskLevel": rec.risk_level,
+            "payloadPreviewRedacted": _truncate_preview(rec.payload_preview_redacted),
+            "payloadHash": rec.payload_hash,
+            "piiFindingsSummary": rec.pii_findings_summary,
         }
 
     # -- POST con retry -------------------------------------------------------
@@ -289,8 +294,8 @@ class QuarantineExporter:
                 log.info(
                     "DRY-RUN quarantine_exporter: enviaria source_slug=%s reason_code=%s "
                     "risk_level=%s payload_hash=%s",
-                    payload["source_slug"], payload["reason_code"],
-                    payload["risk_level"], payload["payload_hash"],
+                    payload["sourceSlug"], payload["reasonCode"],
+                    payload["riskLevel"], payload["payloadHash"],
                 )
             return result
 
@@ -312,8 +317,8 @@ class QuarantineExporter:
             else:
                 result.errors.append(
                     f"{_QUARANTINE_PATH} status {resp.status_code} "
-                    f"para source_slug={payload['source_slug']} "
-                    f"reason_code={payload['reason_code']}"
+                    f"para source_slug={payload['sourceSlug']} "
+                    f"reason_code={payload['reasonCode']}"
                 )
         return result
 

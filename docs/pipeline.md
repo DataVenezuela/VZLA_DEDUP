@@ -859,19 +859,21 @@ Contrato del endpoint que el backend (dataVenezuela) debe exponer para la
 Quarantine DB (ver "Capa 4b"). El scraper hace un POST por registro no
 procesable. `run_id` se comparte con el aporte de la misma corrida.
 
-Ejemplo de payload (campos que envía el `QuarantineExporter`):
+Ejemplo de payload (campos que envía el `QuarantineExporter`). **Claves en
+camelCase**: es el contrato de la API de dataVenezuela (schema Zod, igual que
+`/api/aportes`); el backend las mapea a columnas snake_case:
 
 ```json
 {
-  "run_id": "uuid-v4",
-  "source_slug": "encuentralos",
-  "source_url": "https://fuente.org/registro/123",
-  "reason_code": "invalid_schema",
-  "reason_detail": "Error parseando pagina 2: KeyError 'nombre'",
-  "risk_level": "medium",
-  "payload_preview_redacted": "fragmento [IDENTITY_DOCUMENT] ...",
-  "payload_hash": "64-hex-sin-prefijo",
-  "pii_findings_summary": {"identity_document": 1}
+  "runId": "uuid-v4",
+  "sourceSlug": "encuentralos",
+  "sourceUrl": "https://fuente.org/registro/123",
+  "reasonCode": "invalid_schema",
+  "reasonDetail": "Error parseando pagina 2: KeyError 'nombre'",
+  "riskLevel": "medium",
+  "payloadPreviewRedacted": "fragmento [IDENTITY_DOCUMENT] ...",
+  "payloadHash": "64-hex-sin-prefijo",
+  "piiFindingsSummary": {"identity_document": 1}
 }
 ```
 
