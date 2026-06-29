@@ -226,7 +226,17 @@ class TestNeedsMapping:
     def test_frazadas_maps_to_colchonetas(self) -> None:
         assert _normalize_needs(["Frazadas"]) == ["colchonetas"]
 
+    def test_medical_supplies_map_to_medicamentos(self) -> None:
+        # Insumos médicos reales se agrupan al keyword de salud más cercano.
+        recibe = ["Gasas", "Insumos médicos", "Primeros Auxilios", "Mascarillas"]
+        assert _normalize_needs(recibe) == ["medicamentos"]
+
+    def test_hygiene_products_map_to_higiene(self) -> None:
+        recibe = ["Jabón", "Alcohol en gel", "Toallas húmedas"]
+        assert _normalize_needs(recibe) == ["higiene"]
+
     def test_unknown_maps_to_otro(self) -> None:
+        # "Artículos de bebé" no tiene keyword en el vocabulario controlado.
         assert _normalize_needs(["Artículos de bebé"]) == ["otro"]
 
 

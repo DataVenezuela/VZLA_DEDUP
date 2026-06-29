@@ -86,27 +86,71 @@ _ESTADO_STATUS_MAP: dict[str, str] = {
 # Claves en forma normalizada (minúscula, sin acentos, ñ->n) porque se comparan
 # contra la salida de ``normalize_for_match``. Comparación por substring: basta
 # la raíz ("aliment" cubre "Alimentos no perecederos").
+#
+# Las raíces salen de las categorías reales observadas en la API (issue #99):
+# la fuente usa texto libre, así que medicamentos/higiene/alimentos agrupan
+# también sus insumos (gasas, jabón, enlatados, etc.) al keyword más cercano
+# del vocabulario controlado. Lo que no encaja cae en ``otro`` y el ``recibe``
+# crudo queda en ``nota``. "Artículos de bebé" no tiene keyword bueno -> otro.
 _NEED_SYNONYMS: tuple[tuple[str, str], ...] = (
+    # agua
     ("agua",            "agua"),
+    # alimentos (incluye no perecederos, enlatados, snacks)
     ("aliment",         "alimentos"),
     ("comida",          "alimentos"),
     ("viver",           "alimentos"),
-    ("medicament",      "medicamentos"),
-    ("medicina",        "medicamentos"),
+    ("pereceder",       "alimentos"),
+    ("enlatado",        "alimentos"),
+    ("galleta",         "alimentos"),
+    ("cereal",          "alimentos"),
+    # medicamentos e insumos médicos / primeros auxilios
+    ("medic",           "medicamentos"),
     ("farmac",          "medicamentos"),
+    ("primeros auxilios", "medicamentos"),
+    ("auxilio",         "medicamentos"),
+    ("gasa",            "medicamentos"),
+    ("venda",           "medicamentos"),
+    ("sutura",          "medicamentos"),
+    ("antisep",         "medicamentos"),
+    ("analges",         "medicamentos"),
+    ("paracetamol",     "medicamentos"),
+    ("ibuprofen",       "medicamentos"),
+    ("antidiarreic",    "medicamentos"),
+    ("suero",           "medicamentos"),
+    ("curacion",        "medicamentos"),
+    ("pomada",          "medicamentos"),
+    ("micropore",       "medicamentos"),
+    ("termometro",      "medicamentos"),
+    ("mascarilla",      "medicamentos"),
+    ("cubreboca",       "medicamentos"),
+    ("guante",          "medicamentos"),
+    # higiene (incluye aseo personal e insumos de higiene)
+    ("higiene",         "higiene"),
+    ("aseo",            "higiene"),
+    ("jabon",           "higiene"),
+    ("alcohol",         "higiene"),
+    ("toalla",          "higiene"),
+    ("dental",          "higiene"),
+    ("cepillo",         "higiene"),
+    ("tampon",          "higiene"),
+    # colchonetas y abrigo de cama
     ("colchon",         "colchonetas"),
     ("frazada",         "colchonetas"),
     ("cobija",          "colchonetas"),
     ("manta",           "colchonetas"),
+    ("sabana",          "colchonetas"),
+    # ropa y calzado
     ("ropa",            "ropa"),
     ("vestiment",       "ropa"),
+    ("abrigo",          "ropa"),
     ("calzado",         "calzado"),
     ("zapato",          "calzado"),
-    ("higiene",         "higiene"),
-    ("aseo",            "higiene"),
+    # pañales y leche de fórmula
     ("panal",           "pañales"),
     ("leche",           "leche_formula"),
     ("formula",         "leche_formula"),
+    ("mamadera",        "leche_formula"),
+    # otros recursos
     ("generador",       "generador"),
     ("combustible",     "combustible"),
     ("gasolina",        "combustible"),
