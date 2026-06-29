@@ -619,7 +619,7 @@ El matching necesita texto uniforme. `"JOSE LUIS"` y `"José Luis"` deben ser el
 
 ---
 
-## Capa 4 — Staging exporter (Issue #81)
+## Capa 4 — Staging exporter (Issue #81) y watermark por fuente (Issue #57)
 
 `scrapers/exporters/staging_exporter.py` lee las entidades procesadas (un dict
 por registro, post-PII, post-score, post-protección de menores) y hace un
@@ -636,14 +636,39 @@ Responsabilidades del exporter:
 - Clasificar la respuesta: 200/201 → enviado, 409 → duplicado, cualquier otro
   status o error de red → error acumulado (nunca relanza, resiliencia por
   registro).
-- Avanzar el watermark de la fuente (`PUT /api/source_watermarks`) a
-  `max(fetched_at)` solo cuando todos los POST de esa fuente terminaron en
-  200/201. Si cualquiera falla, el watermark no cambia.
+- Avanzar el watermark de la fuente (`PUT /api/source-watermarks/{slug}`, body
+  `{"watermarkAt": "<ISO>"}`) a `max(fetched_at)` solo cuando todos los POST de
+  esa fuente terminaron en 200/201. Si cualquiera falla, el watermark no
+  cambia.
 
-Modo dry-run silencioso: si falta cualquiera de `STAGING_API_KEY`,
-`STAGING_BASE_URL` o `STAGING_SOURCE_SLUG`, el exporter queda deshabilitado, no
-abre cliente HTTP (cero red), loguea a INFO lo que enviaría y termina con
-`staging_sent=0` sin error.
+Auth con `dataVenezuela`: header `x-api-key` (no `Authorization: Bearer`) —
+mismo header en `/api/aportes` y en `/api/source-watermarks/{slug}`, por
+contrato real documentado en `dataVenezuela/docs/api-dedup.md`.
+
+> **Gap conocido (#129):** el payload de `POST /api/aportes` que construye
+> `_build_payload` sigue en snake_case (`run_id`, `entity_type`, `dedup_hash`,
+> `data`, …); el contrato real de `dataVenezuela` espera camelCase
+> (`runId`, `entityType`, `dedupHash`, `rawJson`, …). El watermark (#57) ya
+> quedó alineado al contrato real; el payload de aportes (#81) todavía no.
+
+`source_slug` **no** vive en `StagingConfig`: una corrida del pipeline procesa
+múltiples fuentes (`run_pipeline._run_source` itera todas las habilitadas), así
+que `source_slug` es siempre `source.id` y se pasa explícito en cada llamada a
+`StagingExporter.get_watermark(source_slug)` / `export_source(..., source_slug=...)`.
+Esto mantiene watermarks independientes por fuente dentro de la misma corrida.
+
+Antes de hacer el fetch, `_run_source` lee `exporter.get_watermark(source.id)`
+y lo pasa como `params={"updated_after": ...}` a `adapter.fetch_all(...)`. El
+`ApiAdapter` lo reenvía como query param real; el resto de adapters (RSS, PDF,
+HTML, Playwright, archivo local) lo ignora (no soportan filtrado server-side).
+Si la fuente nunca tuvo watermark, `get_watermark` devuelve el default
+`1970-01-01T00:00:00Z`, lo que provoca backfill completo en la primera corrida.
+Una lectura fallida del watermark (red, 5xx) tampoco bloquea el fetch: degrada
+al mismo default en vez de abortar la fuente.
+
+Modo dry-run silencioso: si falta cualquiera de `STAGING_API_KEY` o
+`STAGING_BASE_URL`, el exporter queda deshabilitado, no abre cliente HTTP (cero
+red), loguea a INFO lo que enviaría y termina con `staging_sent=0` sin error.
 
 El exporter no toma decisiones de dedup. Su única responsabilidad es persistir
 en staging; el dedup vive en el consolidation job (#82).
@@ -1044,7 +1069,7 @@ python -m scrapers.cli validate --config scrapers/config/sources.demo.yaml
 | Dedup specs + fingerprint v1 | ✅ Issue #81 |
 | Raw artifact store (R2) | ❌ bloqueado por #81 |
 | Quarantine DB | ❌ bloqueado por #81 |
-| Watermark por fuente | ❌ Issue #57, bloqueado por #81 |
+| Watermark por fuente | ✅ Issue #57 |
 | Consolidation job | ❌ Issue #82, bloqueado por #81 |
 | Build job (Supabase → D1) | ❌ bloqueado por canonical |
 | Cloudflare Worker | ❌ bloqueado por build job |

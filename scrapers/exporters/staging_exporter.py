@@ -41,11 +41,15 @@ _MAX_POST_RETRIES = 4
 
 @dataclass(frozen=True)
 class StagingConfig:
-    """Configuracion del exporter leida del entorno."""
+    """Configuracion del exporter leida del entorno.
+
+    El source_slug NO vive aqui: una sola corrida del pipeline procesa
+    multiples fuentes (ver run_pipeline._run_source), asi que cada llamada a
+    get_watermark/export_source recibe su propio source_slug (source.id).
+    """
 
     api_key: str
     base_url: str
-    source_slug: str
 
     @classmethod
     def from_env(cls) -> StagingConfig | None:
@@ -59,7 +63,6 @@ class StagingConfig:
         values = {
             "STAGING_API_KEY": os.getenv("STAGING_API_KEY"),
             "STAGING_BASE_URL": os.getenv("STAGING_BASE_URL"),
-            "STAGING_SOURCE_SLUG": os.getenv("STAGING_SOURCE_SLUG"),
         }
         present = [k for k, v in values.items() if v]
         if not present:
@@ -78,7 +81,6 @@ class StagingConfig:
         return cls(
             api_key=str(values["STAGING_API_KEY"]),
             base_url=str(values["STAGING_BASE_URL"]).rstrip("/"),
-            source_slug=str(values["STAGING_SOURCE_SLUG"]),
         )
 
 
@@ -155,11 +157,10 @@ class StagingExporter:
 
     # -- payload --------------------------------------------------------------
 
-    def _build_payload(self, rec: dict[str, object]) -> dict[str, object]:
+    def _build_payload(self, rec: dict[str, object], source_slug: str) -> dict[str, object]:
         entity_type = str(rec.get("_entity_type") or "Person")
         clean = {k: v for k, v in rec.items() if not k.startswith("_")}
         spec = specs.spec_for_entity_type(entity_type)
-        source_slug = self.config.source_slug if self.config is not None else ""
 
         # Event/AcopioCenter: external_id y dedup_hash derivan ambos del mismo
         # fingerprint v1, asi que se calcula UNA sola vez y se reusa (evita el
@@ -197,19 +198,31 @@ class StagingExporter:
 
     # -- watermark ------------------------------------------------------------
 
-    def _get_watermark(self) -> str:
-        assert self._client is not None and self.config is not None
-        resp = self._client.get(f"{_WATERMARKS_PATH}/{self.config.source_slug}")
-        if resp.status_code == 404:
-            return _DEFAULT_WATERMARK
-        resp.raise_for_status()
-        payload = resp.json()
-        return str(payload.get("watermarkAt", _DEFAULT_WATERMARK))
+    def get_watermark(self, source_slug: str) -> str:
+        """Watermark actual de ``source_slug``; usado por run_pipeline ANTES
+        del fetch para filtrar la ventana (``updated_after``).
 
-    def _set_watermark(self, watermark_at: str) -> bool:
-        assert self._client is not None and self.config is not None
+        Fail-open al default (backfill completo) si el exporter esta
+        deshabilitado (dry-run) o si la lectura falla: nunca debe bloquear el
+        fetch, y re-fetchear de mas es preferible a perder registros.
+        """
+        if not self.enabled or self._client is None:
+            return _DEFAULT_WATERMARK
+        try:
+            resp = self._client.get(f"{_WATERMARKS_PATH}/{source_slug}")
+            if resp.status_code == 404:
+                return _DEFAULT_WATERMARK
+            resp.raise_for_status()
+            payload = resp.json()
+            return str(payload.get("watermarkAt", _DEFAULT_WATERMARK))
+        except httpx.HTTPError as exc:
+            log.warning("no se pudo leer watermark de %s: %s", source_slug, exc)
+            return _DEFAULT_WATERMARK
+
+    def _set_watermark(self, source_slug: str, watermark_at: str) -> bool:
+        assert self._client is not None
         resp = self._client.put(
-            f"{_WATERMARKS_PATH}/{self.config.source_slug}",
+            f"{_WATERMARKS_PATH}/{source_slug}",
             json={"watermarkAt": watermark_at},
         )
         return resp.status_code in (200, 201)
@@ -257,10 +270,11 @@ class StagingExporter:
         self,
         records: list[dict[str, object]],
         *,
+        source_slug: str,
         source_fetched_ats: list[str],
         source_errors: list[str] | None = None,
     ) -> ExportResult:
-        """Exporta los records de una fuente; avanza el watermark si todo OK.
+        """Exporta los records de ``source_slug``; avanza su watermark si todo OK.
 
         ``source_errors`` son errores previos de la fuente (parse, PII,
         enriquecimiento y el fail-closed de proteccion de menores) que se
@@ -272,7 +286,7 @@ class StagingExporter:
 
         if not self.enabled or self._client is None or self.config is None:
             for rec in records:
-                payload = self._build_payload(rec)
+                payload = self._build_payload(rec, source_slug)
                 log.info(
                     "DRY-RUN staging_exporter: enviaria entityType=%s externalId=%s",
                     payload["entityType"],
@@ -280,14 +294,8 @@ class StagingExporter:
                 )
             return result
 
-        # Lectura informativa del watermark actual (no filtra en Stage 1).
-        try:
-            self._get_watermark()
-        except httpx.HTTPError as exc:
-            log.warning("no se pudo leer watermark: %s", exc)
-
         for rec in records:
-            payload = self._build_payload(rec)
+            payload = self._build_payload(rec, source_slug)
             try:
                 resp = self._post_with_retry(_APORTES_PATH, payload)
             except httpx.HTTPError as exc:
@@ -309,7 +317,7 @@ class StagingExporter:
         if not result.errors and not has_source_errors and source_fetched_ats:
             new_watermark = max(source_fetched_ats)
             try:
-                if not self._set_watermark(new_watermark):
+                if not self._set_watermark(source_slug, new_watermark):
                     result.errors.append("no se pudo actualizar el watermark")
             except httpx.HTTPError as exc:
                 result.errors.append(f"PUT {_WATERMARKS_PATH} fallo: {exc}")
