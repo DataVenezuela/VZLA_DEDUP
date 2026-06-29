@@ -3,6 +3,7 @@ from pathlib import Path
 import pytest
 
 from scrapers.validators.source_validator import validate_sources_config
+from scrapers.sources.loader import load_sources
 
 
 def test_demo_config_is_valid():
@@ -157,3 +158,74 @@ sources:
     payload = validate_sources_config(config)
 
     assert payload["sources"][0]["parser_asignado"] == "html"
+
+
+def test_optional_source_safety_fields_are_loaded(tmp_path):
+    config = tmp_path / "safety_fields.yaml"
+    config.write_text(
+        """
+sources:
+  - id: fuente_segura
+    name: Fuente segura
+    type: api_json
+    enabled: true
+    trust_tier: C
+    url: "https://example.org/api"
+    refresh_minutes: 30
+    parser_asignado: encuentralos
+    allowed_domains:
+      - example.org
+    rate_limit_per_minute: 10
+""",
+        encoding="utf-8",
+    )
+
+    _project, sources = load_sources(config)
+
+    assert sources[0].allowed_domains == ["example.org"]
+    assert sources[0].rate_limit_per_minute == 10
+
+
+def test_invalid_allowed_domains_is_rejected(tmp_path):
+    config = tmp_path / "invalid_allowed_domains.yaml"
+    config.write_text(
+        """
+sources:
+  - id: fuente_dominio_invalido
+    name: Fuente dominio invalido
+    type: api_json
+    enabled: true
+    trust_tier: C
+    url: "https://example.org/api"
+    refresh_minutes: 30
+    parser_asignado: encuentralos
+    allowed_domains:
+      - ""
+""",
+        encoding="utf-8",
+    )
+
+    with pytest.raises(ValueError, match="allowed_domains"):
+        validate_sources_config(config)
+
+
+def test_invalid_rate_limit_per_minute_is_rejected(tmp_path):
+    config = tmp_path / "invalid_rate_limit.yaml"
+    config.write_text(
+        """
+sources:
+  - id: fuente_rate_invalido
+    name: Fuente rate invalido
+    type: api_json
+    enabled: true
+    trust_tier: C
+    url: "https://example.org/api"
+    refresh_minutes: 30
+    parser_asignado: encuentralos
+    rate_limit_per_minute: 0
+""",
+        encoding="utf-8",
+    )
+
+    with pytest.raises(ValueError, match="rate_limit_per_minute"):
+        validate_sources_config(config)

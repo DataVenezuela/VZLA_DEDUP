@@ -18,6 +18,7 @@ from unittest.mock import patch
 import httpx
 import pytest
 
+from scrapers.adapters._shared import RateLimiter
 from scrapers.adapters.api_adapter import ApiAdapter, _sha256
 from scrapers.adapters.base import AdapterProtocol, RawContent
 
@@ -81,6 +82,19 @@ class _PaginatedTransport(httpx.BaseTransport):
         items = _synthetic_records(end - start, start)
         payload = _make_page(items, self.total)
         return _json_response(payload)
+
+
+class _ClockedPaginatedTransport(_PaginatedTransport):
+    """Transport paginado que registra el reloj falso en cada request."""
+
+    def __init__(self, total: int, clock: Any, page_size: int = 20) -> None:
+        super().__init__(total=total, page_size=page_size)
+        self.clock = clock
+        self.call_times: list[float] = []
+
+    def handle_request(self, request: httpx.Request) -> httpx.Response:
+        self.call_times.append(float(self.clock()))
+        return super().handle_request(request)
 
 
 class _RetryTransport(httpx.BaseTransport):
@@ -244,6 +258,28 @@ class TestFetchAllPagination:
 
         list(adapter.fetch_all("/api/personas"))
         assert "offset=0" in transport.calls[0]
+
+    def test_rate_limiter_applies_to_paginated_requests(self) -> None:
+        now = 0.0
+
+        def clock() -> float:
+            return now
+
+        def sleeper(seconds: float) -> None:
+            nonlocal now
+            now += seconds
+
+        transport = _ClockedPaginatedTransport(total=5, page_size=1, clock=clock)
+        adapter = _adapter_with_transport(transport, page_size=1)
+        adapter.rate_limiter = RateLimiter(
+            max_calls=2,
+            clock=clock,
+            sleeper=sleeper,
+        )
+
+        list(adapter.fetch_all("/api/personas"))
+
+        assert transport.call_times == [0.0, 0.0, 60.0, 60.0, 120.0]
 
 
 # ---------------------------------------------------------------------------

@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import re
 
-from scrapers.adapters._shared import backoff_delay, now_utc, sha256_hex
+from scrapers.adapters._shared import RateLimiter, backoff_delay, now_utc, sha256_hex
 
 
 class TestNowUtc:
@@ -50,3 +50,34 @@ class TestBackoffDelay:
         for attempt in range(1, 10):
             delay = backoff_delay(attempt)
             assert delay >= 0.0
+
+
+class TestRateLimiter:
+    def test_wait_sleeps_when_window_is_full(self) -> None:
+        now = 0.0
+        sleeps: list[float] = []
+
+        def clock() -> float:
+            return now
+
+        def sleeper(seconds: float) -> None:
+            nonlocal now
+            sleeps.append(seconds)
+            now += seconds
+
+        limiter = RateLimiter(max_calls=2, clock=clock, sleeper=sleeper)
+
+        limiter.wait()
+        limiter.wait()
+        limiter.wait()
+
+        assert sleeps == [60.0]
+        assert now == 60.0
+
+    def test_rejects_invalid_limits(self) -> None:
+        try:
+            RateLimiter(max_calls=0)
+        except ValueError as exc:
+            assert "positive" in str(exc)
+        else:
+            raise AssertionError("RateLimiter debe rechazar max_calls=0")

@@ -82,6 +82,28 @@ def _validate_optional_fields(source: dict, label: str) -> None:
                 f"total de intentos; 0 dejaria el adapter sin ningun intento)."
             )
 
+    allowed_domains = source.get("allowed_domains")
+    if allowed_domains is not None:
+        if (
+            not isinstance(allowed_domains, list)
+            or not allowed_domains
+            or not all(isinstance(domain, str) and domain.strip() for domain in allowed_domains)
+        ):
+            raise ValueError(
+                f"{label} debe tener 'allowed_domains' como lista no vacia de textos no vacios."
+            )
+
+    rate_limit_per_minute = source.get("rate_limit_per_minute")
+    if rate_limit_per_minute is not None:
+        if (
+            isinstance(rate_limit_per_minute, bool)
+            or not isinstance(rate_limit_per_minute, int)
+            or rate_limit_per_minute <= 0
+        ):
+            raise ValueError(
+                f"{label} debe tener 'rate_limit_per_minute' como entero positivo."
+            )
+
 
 def validate_sources_config(config_path: Path) -> dict:
     payload = yaml.safe_load(config_path.read_text(encoding="utf-8"))

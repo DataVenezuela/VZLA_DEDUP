@@ -514,6 +514,33 @@ sources: []
         )
         assert _get_adapter(source) is None
 
+    def test_disallowed_domain_skips_before_adapter(self, tmp_path: Path) -> None:
+        cfg = _make_demo_config(tmp_path, """
+project:
+  event_id: 8f14e45f-ceea-467e-bd5d-0a4f2e0c1a3a
+  default_country: Venezuela
+sources:
+  - id: fuente_dominio_bloqueado
+    name: Fuente dominio bloqueado
+    type: api_json
+    enabled: true
+    trust_tier: C
+    url: "https://blocked.example/api/personas"
+    refresh_minutes: 60
+    parser_asignado: encuentralos
+    allowed_domains:
+      - allowed.example
+""")
+        transport = _StagingTransport()
+        with patch.dict(os.environ, _STAGING_ENV, clear=False), _patch_exporter(transport), patch(
+            "scrapers.pipelines.run_pipeline._get_adapter",
+            side_effect=AssertionError("no debe construir adapter"),
+        ):
+            summary = run_pipeline(config_path=cfg, output_dir=tmp_path / "out")
+        assert summary["staging_sent"] == 0
+        assert transport.posts == []
+        assert any("dominio no permitido" in e for e in summary["errors"])
+
     def test_unimplemented_parser_source_omitted(self, tmp_path: Path) -> None:
         dump = _make_synthetic_dump(tmp_path)
         cfg = _make_demo_config(tmp_path, f"""

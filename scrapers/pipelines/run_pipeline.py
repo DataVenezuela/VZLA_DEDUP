@@ -43,6 +43,7 @@ import os
 import uuid
 from pathlib import Path
 from typing import Any
+from urllib.parse import urlparse
 
 from scrapers.adapters._shared import now_utc, sha256_hex
 from scrapers.adapters.base import RawContent
@@ -101,6 +102,7 @@ def _get_adapter(source: SourceConfig) -> Any:
     stype = source.type
 
     if stype == "api_json":
+        from scrapers.adapters._shared import RateLimiter
         from scrapers.adapters.api_adapter import ApiAdapter
         # base_url = esquema + host; el path se pasa en fetch_all
         import httpx
@@ -109,10 +111,19 @@ def _get_adapter(source: SourceConfig) -> Any:
         if parsed.port:
             base_url += f":{parsed.port}"
         path = parsed.path or "/"
+        adapter_kwargs: dict[str, Any] = {
+            "base_url": base_url,
+            "source_key": source.id,
+            "default_path": path,
+        }
+        if source.timeout_seconds is not None:
+            adapter_kwargs["timeout"] = source.timeout_seconds
+        if source.max_retries is not None:
+            adapter_kwargs["max_retries"] = source.max_retries
+        if source.rate_limit_per_minute is not None:
+            adapter_kwargs["rate_limiter"] = RateLimiter(source.rate_limit_per_minute)
         adapter = ApiAdapter(
-            base_url=base_url,
-            source_key=source.id,
-            default_path=path,
+            **adapter_kwargs,
         )
         return adapter
 
@@ -141,6 +152,22 @@ def _get_adapter(source: SourceConfig) -> Any:
         stype, source.id,
     )
     return None
+
+
+def _source_host_error(source: SourceConfig) -> str | None:
+    """Devuelve un error si source.url no pertenece a allowed_domains."""
+    if source.allowed_domains is None:
+        return None
+    host = (urlparse(source.url).hostname or "").lower()
+    allowed = {domain.strip().lower() for domain in source.allowed_domains}
+    if host in allowed:
+        return None
+    allowed_list = ", ".join(sorted(allowed))
+    visible_host = host or "<sin host>"
+    return (
+        f"dominio no permitido: host={visible_host!r} no esta en "
+        f"allowed_domains=[{allowed_list}] (fuente {source.id} omitida)"
+    )
 
 
 def _get_parser(source: SourceConfig, event_id: str) -> Any:
@@ -420,6 +447,11 @@ def _run_source(
     """
     log.info("Iniciando fuente: %s (type=%s, parser=%s)", source.id, source.type, source.parser_asignado)
     source_errors: list[str] = []
+
+    domain_error = _source_host_error(source)
+    if domain_error is not None:
+        all_errors.append(f"[{source.id}] {domain_error}")
+        return ExportResult(errors=[domain_error])
 
     # 1. Adapter
     adapter = _get_adapter(source)

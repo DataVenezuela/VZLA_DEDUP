@@ -26,6 +26,8 @@ def load_sources(config_path: Path) -> tuple[dict, list[SourceConfig]]:
                 notes=source.get("notes"),
                 timeout_seconds=source.get("timeout_seconds"),
                 max_retries=source.get("max_retries"),
+                allowed_domains=source.get("allowed_domains"),
+                rate_limit_per_minute=source.get("rate_limit_per_minute"),
             )
         )
 

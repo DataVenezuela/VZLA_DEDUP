@@ -38,7 +38,7 @@ from typing import Any, Iterator
 
 import httpx
 
-from scrapers.adapters._shared import backoff_delay, now_utc, sha256_hex
+from scrapers.adapters._shared import RateLimiter, backoff_delay, now_utc, sha256_hex
 from scrapers.adapters.http_client import USER_AGENT
 
 from .base import RawContent
@@ -104,6 +104,7 @@ class ApiAdapter:
         max_retries: int = _MAX_RETRIES,
         source_key: str | None = None,
         default_path: str | None = None,
+        rate_limiter: RateLimiter | None = None,
     ) -> None:
         self.base_url = base_url.rstrip("/")
         self.page_size = page_size
@@ -113,6 +114,7 @@ class ApiAdapter:
         # a private attr after construction. Allows _run_source to know the
         # API path without coupling to internal attribute names.
         self.default_path = default_path
+        self.rate_limiter = rate_limiter
 
         merged_headers = {**_DEFAULT_HEADERS, **(extra_headers or {})}
         self._client = httpx.Client(
@@ -144,6 +146,8 @@ class ApiAdapter:
 
         for attempt in range(1, self.max_retries + 1):
             try:
+                if self.rate_limiter is not None:
+                    self.rate_limiter.wait()
                 resp = self._client.get(path, params=params)
 
                 if resp.status_code in _RETRYABLE_STATUS:

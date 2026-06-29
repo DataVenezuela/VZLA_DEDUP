@@ -22,6 +22,9 @@ sources:
     trust_tier: C
     enabled: true
     refresh_minutes: 30
+    allowed_domains:
+      - encuentralos.tecnosoft.dev
+    rate_limit_per_minute: 30
     pagination:
       path: /api/personas
       limit_param: limit
@@ -52,6 +55,8 @@ sources:
 | `trust_tier` | sí | Letra A/B/C/D — nivel de confianza |
 | `enabled` | sí | `true`/`false`. Las deshabilitadas se ignoran |
 | `refresh_minutes` | no | Frecuencia mínima de scraping. Default: 60 |
+| `allowed_domains` | no | Lista de hosts permitidos para `url`; coincidencia exacta sin distinguir mayúsculas/minúsculas |
+| `rate_limit_per_minute` | no | Máximo de requests por minuto para fuentes `api_json` paginadas |
 
 No se deben agregar campos nuevos al contrato sin actualizar este documento.
 
@@ -94,6 +99,8 @@ Cuando lleguen registros de una fuente sin parser registrado, el pipeline los en
 ## Reglas
 
 - La URL no debe contener credenciales, tokens o secretos
+- Si `allowed_domains` está presente, el host de `url` debe coincidir exactamente con uno de sus valores
+- Si `rate_limit_per_minute` está presente, debe ser un entero positivo
 - Si la fuente no es pública, su uso debe revisarse antes de agregarse (ver `scrapers/security/SOURCE_POLICY.md`)
 - El `id` debe ser único en el archivo
 - `trust_tier` = letra, nunca entero en el YAML
