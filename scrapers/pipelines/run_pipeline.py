@@ -634,8 +634,12 @@ def _run_source(
 
     # 4. Parse
     entities, parse_errors = _parse_pages(parser, pages, limit, source, quarantine_batch)
+    
     source_errors.extend(parse_errors)
     log.info("%s: %d entidades parseadas", source.id, len(entities))
+    
+    if len(entities) ==  0 and len(pages) > 0: 
+        log.warn("%s: No se parsearon entidades de %d paginas descargadas", source.id, len(pages))
 
     if not entities:
         all_errors.extend([f"[{source.id}] {e}" for e in source_errors])
