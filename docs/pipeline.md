@@ -1116,6 +1116,9 @@ completo dirigido a agentes.
   POST `/api/aportes` → tabla `aportes` en Supabase.
 - Watermark filtering activo: el log de producción muestra
   `updated_after=...` en la query real al adapter.
+- `ingest.yml` ya invoca `python -m scrapers.cli --verbose ingest` — el
+  progreso del fetch (páginas descargadas, entidades parseadas) sí se ve en
+  los logs de GitHub Actions.
 
 **Brecha activa — `page_size` no es configurable:**
 `encuentralos_tecnosoft` tiene **~98.830 registros**, no los ~290 que dice
@@ -1130,14 +1133,6 @@ solución de paralelismo ahí debe preservar la garantía de que el watermark
 solo avanza si **todos** los POST de la fuente terminaron en 200/201 (ver
 "Capa 4 — Staging exporter" arriba) — paralelizar sin preservar esa
 garantía rompe la semántica de at-least-once delivery documentada.
-
-**Brecha activa — logging silencioso sin `--verbose`:**
-`scrapers/cli.py` solo llama `logging.basicConfig()` si se pasa
-`--verbose`/`-v`. `ingest.yml` no lo pasa hoy, así que los `log.info()` de
-progreso (páginas descargadas, entidades parseadas) no aparecen en los
-logs de GitHub Actions — solo se ven `WARNING`/`ERROR`. Esto hizo que un
-run de 14 minutos pareciera "colgado" cuando en realidad estaba fetcheando
-activamente.
 
 **Infraestructura — Supabase y Vercel se gestionan por separado:**
 Mover el proyecto Supabase a otra organización no actualiza las env vars de
