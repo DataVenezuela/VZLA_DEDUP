@@ -27,7 +27,7 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - uses: actions/setup-python@v5
+      - uses: actions/setup-python@v6
         with:
           python-version: "3.12"
           cache: pip
@@ -68,7 +68,7 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - uses: actions/setup-python@v5
+      - uses: actions/setup-python@v6
         with:
           python-version: "3.12"
           cache: pip
@@ -92,13 +92,12 @@ jobs:
         run: |
           python -m scrapers.cli --verbose ingest \
             --config "$CONFIG" \
-            --source "$SOURCE_ID" \
-            --output-dir scrapers/runtime_output \
-            --offset 40
+            --source "${{ matrix.source_id }}" \
+            --output-dir scrapers/runtime_output
 
       - name: Upload artifacts
         if: always()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: ingest-${{ matrix.source_id }}
           path: scrapers/runtime_output/
