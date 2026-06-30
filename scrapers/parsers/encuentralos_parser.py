@@ -82,6 +82,7 @@ _STATUS_MAP: dict[str, str] = {
     "fallecida":     "deceased",
     "muerto":        "deceased",
     "muerta":        "deceased",
+    "sin_informacion": "unknown", 
 }
 
 
@@ -199,10 +200,10 @@ class EncuentralosParser:
         en Person, se omite y se loguea el id externo.  El resto sigue.
         """
         payload = raw.get("raw_content", {})
-
         # La API devuelve {"data": [...], "total": N}
+        # Correccion: la api devuelve { "items": [...]}
         if isinstance(payload, dict):
-            records = payload.get("data") or []
+            records = payload.get("items") or []
         elif isinstance(payload, list):
             # Compatibilidad si el adapter entregó la lista directa
             records = payload
@@ -240,6 +241,7 @@ class EncuentralosParser:
         No lanza excepción — cualquier fallo de validación Pydantic se
         captura y loguea.
         """
+       
         rec_id = rec.get("id", "?")
 
         # ── full_name ─────────────────────────────────────────────────
@@ -302,6 +304,7 @@ class EncuentralosParser:
 
         # ── construir Person ──────────────────────────────────────────
         try:
+            
             return Person(
                 full_name=full_name,
                 event_id=self._event_id,
