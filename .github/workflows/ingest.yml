@@ -84,7 +84,7 @@ jobs:
           STAGING_BASE_URL: ${{ vars.STAGING_BASE_URL }}
         run: |
           CONFIG="${{ inputs.config || 'scrapers/config/sources.venezuela.starter.yaml' }}"
-          python -m scrapers.cli ingest \
+          python -m scrapers.cli --verbose ingest \
             --config "$CONFIG" \
             --source "${{ matrix.source_id }}" \
             --output-dir scrapers/runtime_output
