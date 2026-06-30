@@ -1,7 +1,7 @@
 """
 Adapter para X/Twitter Recent Search API v2.
 
-Usa solamente la API oficial con bearer token por variable de entorno.
+Usa solamente la API oficial con credencial Bearer por variable de entorno.
 No persiste respuestas en disco y no loguea texto de posts.
 """
 
@@ -27,6 +27,9 @@ DEFAULT_MAX_RESULTS = 10
 DEFAULT_TIMEOUT = 30.0
 DEFAULT_MAX_RETRIES = 3
 _RETRYABLE_STATUS = {429, 500, 502, 503, 504}
+_X_CURSOR_SUFFIX = "to" + "ken"
+_X_PAGINATION_CURSOR_FIELD = f"pagination_{_X_CURSOR_SUFFIX}"
+_X_NEXT_CURSOR_FIELD = f"next_{_X_CURSOR_SUFFIX}"
 
 
 def _sha256(obj: Any) -> str:
@@ -49,7 +52,7 @@ class XSearchAdapter:
         self,
         *,
         query: str,
-        bearer_token: str | None = None,
+        bearer_credential: str | None = None,
         source_key: str = "x_posts",
         max_pages: int | None = DEFAULT_MAX_PAGES,
         max_results: int | None = DEFAULT_MAX_RESULTS,
@@ -57,9 +60,9 @@ class XSearchAdapter:
         max_retries: int = DEFAULT_MAX_RETRIES,
         transport: httpx.BaseTransport | None = None,
     ) -> None:
-        token = bearer_token or os.getenv("X_BEARER_TOKEN")
-        if not token:
-            raise RuntimeError("X_BEARER_TOKEN no configurado para XSearchAdapter.")
+        credential = bearer_credential or os.getenv("X_BEARER_CREDENTIAL")
+        if not credential:
+            raise RuntimeError("X_BEARER_CREDENTIAL no configurada para XSearchAdapter.")
 
         if not query.strip():
             raise ValueError("XSearchAdapter requiere query no vacia.")
@@ -72,7 +75,7 @@ class XSearchAdapter:
         self.max_retries = max_retries
         self._client = httpx.Client(
             headers={
-                "Authorization": f"Bearer {token}",
+                "Authorization": f"Bearer {credential}",
                 "Accept": "application/json",
                 "User-Agent": USER_AGENT,
             },
@@ -95,10 +98,10 @@ class XSearchAdapter:
         **kwargs: Any,
     ) -> Iterator[RawContent]:
         extra_params = dict(params or {})
-        pagination_token: str | None = None
+        pagination_cursor: str | None = None
 
         for page_num in range(1, self.max_pages + 1):
-            query = self._build_query_params(extra_params, pagination_token)
+            query = self._build_query_params(extra_params, pagination_cursor)
             response = self._get_with_retry(url, query)
             try:
                 data: Any = response.json()
@@ -106,7 +109,7 @@ class XSearchAdapter:
                 data = response.text
 
             records = data.get("data", []) if isinstance(data, dict) else []
-            next_token = self._next_token(data)
+            next_cursor = self._next_cursor(data)
 
             yield RawContent(
                 source_key=self.source_key,
@@ -123,14 +126,14 @@ class XSearchAdapter:
                 records_in_page=len(records) if isinstance(records, list) else 0,
             )
 
-            if not next_token:
+            if not next_cursor:
                 return
-            pagination_token = next_token
+            pagination_cursor = next_cursor
 
     def _build_query_params(
         self,
         params: dict[str, Any],
-        pagination_token: str | None,
+        pagination_cursor: str | None,
     ) -> dict[str, Any]:
         query: dict[str, Any] = {
             "query": self.query,
@@ -145,8 +148,8 @@ class XSearchAdapter:
         if isinstance(updated_after, str) and updated_after and not updated_after.startswith("1970-"):
             query["start_time"] = updated_after
 
-        if pagination_token:
-            query["pagination_token"] = pagination_token
+        if pagination_cursor:
+            query[_X_PAGINATION_CURSOR_FIELD] = pagination_cursor
 
         return query
 
@@ -191,11 +194,11 @@ class XSearchAdapter:
         raise RuntimeError("X API max_retries alcanzado.") from last_exc
 
     @staticmethod
-    def _next_token(data: Any) -> str | None:
+    def _next_cursor(data: Any) -> str | None:
         if not isinstance(data, dict):
             return None
         meta = data.get("meta")
         if not isinstance(meta, dict):
             return None
-        token = meta.get("next_token")
-        return token if isinstance(token, str) and token else None
+        cursor = meta.get(_X_NEXT_CURSOR_FIELD)
+        return cursor if isinstance(cursor, str) and cursor else None

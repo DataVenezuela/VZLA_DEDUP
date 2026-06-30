@@ -65,7 +65,7 @@ Fuente social experimental deshabilitada:
       - desaparecido
       - se busca
       - terremoto
-    notes: "Fuente social no verificada. Requiere X_BEARER_TOKEN."
+    notes: "Fuente social no verificada. Requiere credencial de X via variable documentada."
 ```
 
 ---
@@ -101,7 +101,7 @@ No se deben agregar campos nuevos al contrato sin actualizar este documento.
 | `pdf` | `pdf_adapter.py` (pdfplumber) | PDFs con texto extraíble |
 | `manual_file` | `local_file.py` | Archivos locales / uploads manuales |
 | `rss` | `rss_adapter.py` (PR #100) | Feeds RSS/Atom |
-| `x_recent_search` | `x_search_adapter.py` | API oficial de X Recent Search; requiere `X_BEARER_TOKEN`, rate limit conservador y `enabled: false` por defecto |
+| `x_recent_search` | `x_search_adapter.py` | API oficial de X Recent Search; requiere `X_BEARER_CREDENTIAL`, rate limit conservador y `enabled: false` por defecto |
 
 ---
 

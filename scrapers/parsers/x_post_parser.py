@@ -49,8 +49,6 @@ _TRAILING_CONTEXT_WORDS = {
     "durante",
     "luego",
     "y",
-    "telefono",
-    "teléfono",
     "tlf",
     "celular",
     "contacto",

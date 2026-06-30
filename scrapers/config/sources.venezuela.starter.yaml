@@ -84,4 +84,4 @@ sources:
       - terremoto
       - herido
       - encontrado
-    notes: "Fuente social no verificada. Solo posts publicos. Requiere X_BEARER_TOKEN. No commitear dumps reales."
+    notes: "Fuente social no verificada. Solo posts publicos. Requiere credencial de X via variable documentada. No commitear dumps reales."

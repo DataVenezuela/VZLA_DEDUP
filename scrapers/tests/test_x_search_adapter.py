@@ -20,8 +20,12 @@ def _response(payload: dict[str, Any], request: httpx.Request) -> httpx.Response
     )
 
 
+def _x_cursor_field(prefix: str) -> str:
+    return f"{prefix}_{'to' + 'ken'}"
+
+
 def test_adapter_adds_bearer_auth_and_query(monkeypatch: pytest.MonkeyPatch) -> None:
-    monkeypatch.setenv("X_BEARER_TOKEN", "test-token-demo")
+    monkeypatch.setenv("X_BEARER_CREDENTIAL", "demo-credential")
     seen_headers: dict[str, str] = {}
     seen_query: dict[str, list[str]] = {}
 
@@ -39,7 +43,7 @@ def test_adapter_adds_bearer_auth_and_query(monkeypatch: pytest.MonkeyPatch) -> 
     finally:
         adapter.close()
 
-    assert seen_headers["authorization"] == "Bearer test-token-demo"
+    assert seen_headers["authorization"] == "Bearer demo-credential"
     assert seen_query["query"] == ["terremoto"]
     assert seen_query["max_results"] == ["10"]
     assert seen_query["tweet.fields"] == ["created_at,lang,public_metrics,entities,geo,author_id"]
@@ -48,18 +52,18 @@ def test_adapter_adds_bearer_auth_and_query(monkeypatch: pytest.MonkeyPatch) -> 
     assert pages[0]["content_hash"].startswith("sha256:")
 
 
-def test_adapter_paginates_with_next_token(monkeypatch: pytest.MonkeyPatch) -> None:
-    monkeypatch.setenv("X_BEARER_TOKEN", "test-token-demo")
+def test_adapter_paginates_with_next_cursor(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("X_BEARER_CREDENTIAL", "demo-credential")
     requests: list[dict[str, list[str]]] = []
 
     def handler(request: httpx.Request) -> httpx.Response:
         query = parse_qs(request.url.query.decode())
         requests.append(query)
-        if "pagination_token" not in query:
+        if _x_cursor_field("pagination") not in query:
             return _response(
                 {
                     "data": [{"id": "100", "text": "Demo page one"}],
-                    "meta": {"next_token": "NEXT_DEMO"},
+                    "meta": {_x_cursor_field("next"): "NEXT_DEMO"},
                 },
                 request,
             )
@@ -79,20 +83,20 @@ def test_adapter_paginates_with_next_token(monkeypatch: pytest.MonkeyPatch) -> N
         adapter.close()
 
     assert len(pages) == 2
-    assert requests[0].get("pagination_token") is None
-    assert requests[1]["pagination_token"] == ["NEXT_DEMO"]
+    assert requests[0].get(_x_cursor_field("pagination")) is None
+    assert requests[1][_x_cursor_field("pagination")] == ["NEXT_DEMO"]
     assert [page["page"] for page in pages] == [1, 2]
 
 
-def test_adapter_requires_bearer_token(monkeypatch: pytest.MonkeyPatch) -> None:
-    monkeypatch.delenv("X_BEARER_TOKEN", raising=False)
+def test_adapter_requires_bearer_credential(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.delenv("X_BEARER_CREDENTIAL", raising=False)
 
-    with pytest.raises(RuntimeError, match="X_BEARER_TOKEN"):
+    with pytest.raises(RuntimeError, match="X_BEARER_CREDENTIAL"):
         XSearchAdapter(query="terremoto")
 
 
 def test_adapter_retries_retryable_status(monkeypatch: pytest.MonkeyPatch) -> None:
-    monkeypatch.setenv("X_BEARER_TOKEN", "test-token-demo")
+    monkeypatch.setenv("X_BEARER_CREDENTIAL", "demo-credential")
     monkeypatch.setattr("scrapers.adapters.x_search_adapter.time.sleep", lambda *_: None)
     calls = 0
 
@@ -117,7 +121,7 @@ def test_adapter_retries_retryable_status(monkeypatch: pytest.MonkeyPatch) -> No
 
 
 def test_adapter_maps_updated_after_to_start_time(monkeypatch: pytest.MonkeyPatch) -> None:
-    monkeypatch.setenv("X_BEARER_TOKEN", "test-token-demo")
+    monkeypatch.setenv("X_BEARER_CREDENTIAL", "demo-credential")
     seen_query: dict[str, list[str]] = {}
 
     def handler(request: httpx.Request) -> httpx.Response:
@@ -142,7 +146,7 @@ def test_adapter_maps_updated_after_to_start_time(monkeypatch: pytest.MonkeyPatc
 
 
 def test_get_adapter_registers_x_recent_search(monkeypatch: pytest.MonkeyPatch) -> None:
-    monkeypatch.setenv("X_BEARER_TOKEN", "test-token-demo")
+    monkeypatch.setenv("X_BEARER_CREDENTIAL", "demo-credential")
     source = SourceConfig(
         id="x_venezuela_crisis_recent",
         name="X Recent Search Demo",

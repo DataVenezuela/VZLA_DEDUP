@@ -86,7 +86,7 @@ def test_parser_ignores_posts_without_clear_person_signal() -> None:
 
 def test_parser_does_not_log_pii_text(caplog: Any) -> None:
     parser = XPostParser(event_id=EVENT_ID)
-    pii_like_text = "Se busca ANA DEMO telefono 0412-000-0000 tras el terremoto."
+    pii_like_text = "Se busca ANA DEMO celular 0412-000-0000 tras el terremoto."
 
     with caplog.at_level(logging.WARNING, logger="scrapers.parsers.x_post_parser"):
         people = parser.parse(_raw([{"id": "103", "text": pii_like_text}]))

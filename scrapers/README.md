@@ -17,7 +17,7 @@ scrapers/
 ├── adapters/
 │   ├── base.py                     # RawContent dataclass + AdapterProtocol
 │   ├── api_adapter.py              # httpx, paginación, retry
-│   ├── x_search_adapter.py         # X Recent Search oficial, requiere token
+│   ├── x_search_adapter.py         # X Recent Search oficial, requiere credencial
 │   ├── html_adapter.py             # BeautifulSoup
 │   ├── playwright_adapter.py       # Playwright headless
 │   ├── pdf_adapter.py              # pdfplumber
@@ -112,7 +112,7 @@ export STAGING_API_KEY="x-api-key del scraper"
 export STAGING_BASE_URL="https://..."
 
 # Opcional: solo para fuentes type=x_recent_search habilitadas
-export X_BEARER_TOKEN="bearer token de X API"
+export X_BEARER_CREDENTIAL="credencial Bearer de X API"
 ```
 
 ---
@@ -142,7 +142,7 @@ Si la fuente no tiene parser todavía, declararla con `enabled: false`. Los regi
 ### Fuentes X/Twitter
 
 Las fuentes `type: x_recent_search` usan la API oficial de X Recent Search
-con `X_BEARER_TOKEN`. Deben quedar `enabled: false` hasta revisar legalidad,
+con `X_BEARER_CREDENTIAL`. Deben quedar `enabled: false` hasta revisar legalidad,
 rate limits y query final. Por defecto son fuente social no verificada:
 `trust_tier: D`.
 
