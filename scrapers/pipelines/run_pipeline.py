@@ -52,6 +52,7 @@ import json
 import logging
 import os
 import uuid
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from pathlib import Path
 from typing import Any
 
@@ -188,11 +189,17 @@ def _get_adapter(source: SourceConfig) -> Any:
         if parsed.port:
             base_url += f":{parsed.port}"
         path = parsed.path or "/"
-        adapter = ApiAdapter(
-            base_url=base_url,
-            source_key=source.id,
-            default_path=path,
-        )
+        adapter_kwargs: dict[str, Any] = {
+            "base_url": base_url,
+            "source_key": source.id,
+            "default_path": path,
+        }
+        # page_size es opcional: cada fuente declara el limite real que su
+        # API soporta (algunas aceptan 1000+, otras capan en 50). Sin
+        # override, ApiAdapter usa su propio default (_DEFAULT_PAGE_SIZE).
+        if source.page_size is not None:
+            adapter_kwargs["page_size"] = source.page_size
+        adapter = ApiAdapter(**adapter_kwargs)
         return adapter
 
     if stype == "html_static":
@@ -677,6 +684,33 @@ def _run_source(
     return result
 
 
+def _process_source_safe(
+    source: SourceConfig,
+    limit: int | None,
+    all_errors: list[str],
+    event_id: str,
+    exporter: StagingExporter,
+) -> tuple[ExportResult, list[QuarantineRecord], bool]:
+    """Ejecuta ``_run_source`` capturando cualquier excepcion fatal de la fuente.
+
+    Aisla el manejo de errores fatales (try/except con log + acumulado en
+    ``all_errors``) para que tanto el modo secuencial como el paralelo
+    (``ThreadPoolExecutor``) lo reusen igual. Devuelve ``(resultado, ok)``
+    donde ``ok=False`` si la fuente entera fallo (no cuenta como
+    ``sources_processed``).
+    """
+
+    quarantine_batch: list[QuarantineRecord] = []
+    try:
+        result = _run_source(source, limit, all_errors, event_id, exporter, quarantine_batch)
+        return result,quarantine_batch, True
+    except Exception as exc:
+        msg = f"[{source.id}] Error fatal en fuente: {exc}"
+        log.error(msg, exc_info=True)
+        all_errors.append(msg)
+        return ExportResult(),quarantine_batch, False
+
+
 # ---------------------------------------------------------------------------
 # Punto de entrada publico
 # ---------------------------------------------------------------------------
@@ -685,6 +719,7 @@ def run_pipeline(
     config_path: Path,
     output_dir: Path,
     limit: int | None = None,
+    max_workers: int = 1,
 ) -> dict:
     """
     Orquestador principal del pipeline.
@@ -699,6 +734,15 @@ def run_pipeline(
         firma por compatibilidad con la CLI.
     limit:
         Numero maximo de entidades por fuente (None = sin limite).
+    max_workers:
+        Fuentes procesadas en paralelo (default 1 = secuencial, igual que
+        antes). Cada fuente es I/O-bound (fetch + POST a staging), asi que
+        threads alcanzan sin GIL real: no hace falta multiprocessing. El
+        ``StagingExporter`` (un solo httpx.Client) es seguro de compartir
+        entre threads. Watermarks y errores se acumulan por fuente
+        (``source.id`` unico), asi que no hay estado compartido mutable entre
+        fuentes mas alla de los acumuladores de ``run_pipeline``, que se
+        suman despues de que cada future termina.
 
     Returns
     -------
@@ -746,39 +790,58 @@ def run_pipeline(
     # vars). Ambos hacen dry-run silencioso si faltan sus credenciales.
     exporter = StagingExporter(StagingConfig.from_env(), run_id=run_id)
     quarantine_exporter = QuarantineExporter(QuarantineConfig.from_env(), run_id=run_id)
+    quarantine_batch: list[QuarantineRecord] = []
+    
     try:
-        for source in enabled:
+        if max_workers <= 1 or len(enabled) <= 1:
+            for source in enabled:
             # Batch de cuarentena fresco por fuente; se vacia en el finally aunque
             # _run_source lance, para no perder los registros ya marcados.
-            quarantine_batch: list[QuarantineRecord] = []
-            try:
-                result = _run_source(
-                    source, limit, all_errors, event_id, exporter, quarantine_batch
+                
+                result, thread_qb, ok = _process_source_safe(
+                    source, limit, all_errors, event_id, exporter
                 )
                 staging_sent += result.sent
                 staging_duplicates += result.duplicates
                 staging_errors += len(result.errors)
-                sources_processed += 1
-            except Exception as exc:
-                msg = f"[{source.id}] Error fatal en fuente: {exc}"
-                log.error(msg, exc_info=True)
-                all_errors.append(msg)
-                # Continuar con la siguiente fuente
-            finally:
-                if quarantine_batch:
-                    qres = quarantine_exporter.quarantine_many(quarantine_batch)
-                    quarantined += qres.sent
-                    quarantine_errors += len(qres.errors)
-                    all_errors.extend(
-                        f"[{source.id}] cuarentena: {e}" for e in qres.errors
-                    )
-                    log.info(
-                        "%s: %d a cuarentena (%d duplicados, %d errores)",
-                        source.id, qres.sent, qres.duplicates, len(qres.errors),
-                    )
+                sources_processed += int(ok)
+                if(len(quarantine_batch) > 0):
+                    quarantine_batch.extend(thread_qb)
+                else:
+                    quarantine_batch = thread_qb 
+
+        else:
+            with ThreadPoolExecutor(max_workers=max_workers) as pool:
+                futures = [
+                    pool.submit(_process_source_safe, source, limit, all_errors, event_id, exporter)
+                    for source in enabled
+                ]
+                for future in as_completed(futures):
+                    result, thread_qb, ok = future.result()
+                    staging_sent += result.sent
+                    staging_duplicates += result.duplicates
+                    staging_errors += len(result.errors)
+                    sources_processed += int(ok),
+                
+                if(len(quarantine_batch) > 0):
+                    quarantine_batch.extend(thread_qb)
+                else:
+                    quarantine_batch = thread_qb 
+                   
     finally:
-        exporter.close()
-        quarantine_exporter.close()
+        
+        if quarantine_batch:
+            qres = quarantine_exporter.quarantine_many(quarantine_batch)
+            quarantined += qres.sent
+            quarantine_errors += len(qres.errors)
+            all_errors.extend(
+                f"[{source.id}] cuarentena: {e}" for e in qres.errors
+            )
+            log.info(
+                "%s: %d a cuarentena (%d duplicados, %d errores)",
+                source.id, qres.sent, qres.duplicates, len(qres.errors))
+            exporter.close()
+            quarantine_exporter.close()
 
     summary = {
         "sources_processed": sources_processed,

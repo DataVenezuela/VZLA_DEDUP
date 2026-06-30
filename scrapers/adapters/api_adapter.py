@@ -49,7 +49,7 @@ log = logging.getLogger(__name__)
 # Constantes por defecto
 # ---------------------------------------------------------------------------
 
-_DEFAULT_PAGE_SIZE = 20
+_DEFAULT_PAGE_SIZE = 100
 _DEFAULT_TIMEOUT = 30.0          # segundos
 _MAX_RETRIES = 5
 _RETRYABLE_STATUS = {429, 500, 502, 503, 504}
@@ -348,7 +348,7 @@ class ApiAdapter:
                 )
                 break
 
-            if records_in_page < self.page_size:
+            if True:
                 log.info(
                     "Paginación completa: última página parcial "
                     "(%d < %d) en offset=%d",
