@@ -173,6 +173,7 @@ def _get_parser(source: SourceConfig, event_id: str) -> Any:
     Parsers concretos (producen entidades tipadas):
       encuentralos  -> EncuentralosParser -> list[Person]
       demo_text     -> DemoTextParser -> list[Person] (fixture sintetico local)
+      pfif          -> PfifParser -> list[Person] (XML PFIF 1.5)
 
     Si ``parser_asignado`` no tiene implementacion registrada se loguea un
     warning y se devuelve None; ``_run_source`` trata la ausencia de parser
@@ -193,6 +194,10 @@ def _get_parser(source: SourceConfig, event_id: str) -> Any:
     if pa == "demo_text":
         from scrapers.parsers.demo_text_parser import DemoTextParser
         return DemoTextParser(event_id=event_id)
+
+    if pa == "pfif":
+        from scrapers.parsers.pfif_parser import PfifParser
+        return PfifParser(event_id=event_id)
 
     log.warning(
         "Parser %r no implementado (fuente=%s) — fuente omitida",
