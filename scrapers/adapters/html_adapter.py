@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import hashlib
 from collections.abc import Callable, Iterator
 from datetime import datetime, timezone
 from typing import Any
