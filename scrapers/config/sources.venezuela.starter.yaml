@@ -73,8 +73,12 @@ sources:
     type: api_json
     enabled: false
     trust_tier: C
-    url: "https://acopio-ve-2026-default-rtdb.firebaseio.com/centros.json"
+    url: "https://api.acopiove.org/v1/centros"
     refresh_minutes: 30
     parser_asignado: acopio_ve
     required_keywords: []
-    notes: "Issue #99. Fuente AcopioVE Firebase RTDB centros.json -> AcopioCenter (payload {id:{centro}}). Fuente comunitaria, disabled hasta habilitación explícita en prod."
+    notes: >
+      Issue #99. Fuente canónica: API pública api.acopiove.org/v1/centros
+      (JSON por defecto; NO usar el Firebase RTDB legacy acopio-ve-2026-default-rtdb).
+      Payload {data:[centro], meta:{total,limit,offset}}; paginación limit/offset
+      (~650 centros activos, jul 2026). Disabled hasta habilitación explícita en prod.
