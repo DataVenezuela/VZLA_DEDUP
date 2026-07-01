@@ -12,7 +12,7 @@ def test_demo_config_is_valid():
 
     assert "sources" in payload
     assert payload["sources"][0]["enabled"] is True
-    assert payload["sources"][0]["parser_asignado"] == "text"
+    assert payload["sources"][0]["parser_asignado"] == "demo_text"
 
 
 def test_starter_config_enabled_sources_have_registered_parser():
