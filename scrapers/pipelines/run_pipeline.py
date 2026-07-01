@@ -240,11 +240,8 @@ def _get_adapter(source: SourceConfig) -> Any:
     stype = source.type
 
     if stype == "api_json":
-        from scrapers.adapters._shared import RateLimiter
         from scrapers.adapters.api_adapter import (
             ApiAdapter,
-            _DEFAULT_TIMEOUT,
-            _MAX_RETRIES,
         )
         # base_url = esquema + host; el path se pasa en fetch_all
         import httpx
