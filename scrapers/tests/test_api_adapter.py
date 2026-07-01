@@ -777,6 +777,15 @@ class TestEffectivePageSizeAutoDetect:
         assert len(pages) == 1
         assert pages[0]["records_in_page"] == 5
 
+    def test_limit_reflects_returned_count_on_partial_single_page(self) -> None:
+        """En página única parcial, limit == registros recibidos, no page_size solicitado."""
+        transport = _SinglePageTransport(records=5)
+        adapter = _adapter_with_transport(transport, page_size=20, max_concurrent_pages=4)
+
+        page = next(adapter.fetch_all("/api/personas"))
+
+        assert page["limit"] == 5
+
 
 class TestNoModuleLevelClientLeak:
     def test_import_does_not_create_unclosed_client(self) -> None:

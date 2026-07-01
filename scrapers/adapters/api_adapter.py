@@ -319,12 +319,11 @@ class ApiAdapter:
 
         Probe de limit
         --------------
-        Antes de paginar, el primer request usa ``max(page_size, _PROBE_LIMIT)``
-        para descubrir el límite real que el API acepta. Funciona en ambas
-        direcciones: si el API soporta el probe completo se usa ese valor;
-        si lo capea, se detecta y se ajusta. El resultado se loguea
-        explícitamente y la primera página se reutiliza como datos reales
-        (no es un request extra).
+        Antes de paginar, el primer request usa ``self.probe_limit`` (si está
+        configurado) o ``self.page_size`` para descubrir el límite real que el
+        API acepta. Si el API soporta el probe completo se usa ese valor; si lo
+        capea, se detecta y se ajusta. El resultado se loguea explícitamente y
+        la primera página se reutiliza como datos reales (no es un request extra).
 
         Comportamiento de fallos (path paralelo)
         -----------------------------------------

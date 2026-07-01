@@ -240,7 +240,8 @@ def test_encuentralos_parallelism_config_is_loaded():
     )
 
     assert encuentralos.max_concurrent_pages == 32
-    assert encuentralos.max_concurrent_posts == 32
+    assert encuentralos.max_concurrent_posts == 8
+    assert encuentralos.probe_limit == 1000
 
 
 def test_invalid_max_concurrent_posts_is_rejected(tmp_path):
