@@ -67,4 +67,4 @@ sources:
     parser_asignado: encuentralos
     required_keywords: []
     notes: "API paginada (limit/offset, ~107k registros). Usa ApiAdapter con page_size=20."
-    max_concurrent_posts: 8
+    max_concurrent_posts: 32
