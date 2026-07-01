@@ -7,7 +7,15 @@ from typing import Any
 import yaml
 
 
-SUPPORTED_TYPES = {"html_static", "api_json", "rss", "manual_file", "webapp_js", "pdf"}
+SUPPORTED_TYPES = {
+    "html_static",
+    "api_json",
+    "rss",
+    "manual_file",
+    "webapp_js",
+    "pdf",
+    "x_recent_search",
+}
 SUPPORTED_TRUST_TIERS = {"A", "B", "C", "D"}
 # id viaja como valor de fuente_slug (columna source_slug de aportes, filtro
 # slug=eq.{id} contra /rest/v1/source_watermarks en Supabase/PostgREST) y

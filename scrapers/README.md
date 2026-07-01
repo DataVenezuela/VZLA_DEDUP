@@ -17,6 +17,7 @@ scrapers/
 ├── adapters/
 │   ├── base.py                     # RawContent dataclass + AdapterProtocol
 │   ├── api_adapter.py              # httpx, paginación, retry
+│   ├── x_search_adapter.py         # X Recent Search oficial, requiere credencial
 │   ├── html_adapter.py             # BeautifulSoup
 │   ├── playwright_adapter.py       # Playwright headless
 │   ├── pdf_adapter.py              # pdfplumber
@@ -24,7 +25,8 @@ scrapers/
 │   └── _shared.py                  # helpers compartidos (timestamp, hash, backoff)
 ├── parsers/
 │   ├── base.py                     # ParserProtocol
-│   └── encuentralos_parser.py      # Parser concreto → list[Person]
+│   ├── encuentralos_parser.py      # Parser concreto → list[Person]
+│   └── x_post_parser.py            # Parser MVP para posts públicos de X
 ├── models/
 │   ├── person.py                   # Person (Pydantic)
 │   ├── acopio_center.py            # AcopioCenter (Pydantic)
@@ -105,10 +107,12 @@ En producción, el pipeline corre vía `.github/workflows/ingest.yml` (cron`*/10
 export PII_HMAC_SECRET="valor-secreto"
 export PII_SALT="$PII_HMAC_SECRET"   # alias legacy, mismo valor — no son dos secrets distintos
 
-# Credenciales de Supabase (staging exporter — upsert directo a /rest/v1/aportes,
-# ya no pasa por Vercel/dataVenezuela, ver #187)
-export SUPABASE_URL="https://<project>.supabase.co"
-export SUPABASE_SERVICE_ROLE_KEY="service_role key, no la anon key"
+# Credenciales de dataVenezuela (staging exporter)
+export STAGING_API_KEY="x-api-key del scraper"
+export STAGING_BASE_URL="https://..."
+
+# Opcional: solo para fuentes type=x_recent_search habilitadas
+export X_BEARER_CREDENTIAL="credencial Bearer de X API"
 ```
 
 ---
@@ -134,6 +138,20 @@ export SUPABASE_SERVICE_ROLE_KEY="service_role key, no la anon key"
 4. Agregar tests en `scrapers/tests/test_mi_parser.py` con fixtures sintéticos.
 
 Si la fuente no tiene parser todavía, declararla con `enabled: false`. Los registros sin parser van a **cuarentena**, no se descartan.
+
+### Fuentes X/Twitter
+
+Las fuentes `type: x_recent_search` usan la API oficial de X Recent Search
+con `X_BEARER_CREDENTIAL`. Deben quedar `enabled: false` hasta revisar legalidad,
+rate limits y query final. Por defecto son fuente social no verificada:
+`trust_tier: D`.
+
+Reglas específicas:
+- no usar cookies personales, scraping web, GraphQL interno ni librerías no oficiales;
+- no commitear dumps, tweets reales, screenshots ni `runtime_output/`;
+- usar fixtures 100% sintéticos en tests;
+- mantener límites conservadores de páginas por corrida;
+- no loguear texto completo de posts porque puede contener PII.
 
 ---
 
