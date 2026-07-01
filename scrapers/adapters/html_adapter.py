@@ -5,7 +5,7 @@ from collections.abc import Callable, Iterator
 from datetime import datetime, timezone
 from typing import Any
 from urllib.parse import urlparse
-
+from scrapers.adapters._shared import sha256_hex
 from scrapers.adapters.base import RawContent
 from scrapers.adapters.http_client import fetch_url
 from scrapers.models.source import SourceConfig
@@ -76,7 +76,7 @@ class HtmlAdapter:
             # de hardcodearlo.
             http_status=200,
             content_type=content_type,
-            content_hash=_sha256_text(text),
+            content_hash=sha256_hex(text.encode("utf-8")),
             raw_content=text,
             page=None,
             total_pages=None,
@@ -105,10 +105,6 @@ def _source_key_from_url(url: str) -> str:
 def _now_utc() -> str:
     return datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
 
-
-def _sha256_text(text: str) -> str:
-    digest = hashlib.sha256(text.encode("utf-8")).hexdigest()
-    return f"sha256:{digest}"
 
 
 def _clean_extracted_text(text: str | None) -> str | None:
